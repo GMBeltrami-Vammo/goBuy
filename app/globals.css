@@ -111,6 +111,36 @@ body {
 }
 .modal-enter { animation: pop-in 0.26s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 
+/* Form controls */
+.input {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--ink);
+  padding: 8px 12px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.input:focus {
+  border-color: var(--volt);
+  box-shadow: 0 0 0 3px var(--volt-soft);
+}
+.input-ghost {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  padding: 6px;
+  font-size: 13px;
+  outline: none;
+  border-radius: 6px;
+}
+.input-ghost:focus {
+  background: var(--surface-2);
+}
+
 ::selection {
   background: var(--volt-soft);
 }
