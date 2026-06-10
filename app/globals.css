@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── goBuy design tokens — "electric utility" ─────────────────────
+   Light: warm paper workshop. Dark: asphalt garage at night.
+   Accent: Vammo volt. IDs and money always in mono, tabular. */
+:root {
+  --bg: #f5f4ef;
+  --surface: #fffefa;
+  --surface-2: #edebe3;
+  --ink: #191b18;
+  --muted: #686d62;
+  --faint: #9aa090;
+  --line: #e0ded4;
+  --line-strong: #c7c5b8;
+  --volt: #65a30d;
+  --volt-strong: #4d7c0f;
+  --volt-soft: rgba(101, 163, 13, 0.13);
+  --pending: #b45309;
+  --pending-soft: rgba(180, 83, 9, 0.12);
+  --approved: #15803d;
+  --approved-soft: rgba(21, 128, 61, 0.12);
+  --rejected: #b91c1c;
+  --rejected-soft: rgba(185, 28, 28, 0.1);
+  --paid: #0369a1;
+  --paid-soft: rgba(3, 105, 161, 0.11);
+  --cancelled: #80857b;
+  --cancelled-soft: rgba(128, 133, 123, 0.14);
+  --shadow: 0 1px 2px rgba(25, 27, 24, 0.05), 0 8px 24px -12px rgba(25, 27, 24, 0.18);
+}
+
+.dark {
+  --bg: #0f110e;
+  --surface: #161914;
+  --surface-2: #1d211b;
+  --ink: #e8ebe1;
+  --muted: #a0a797;
+  --faint: #6e7567;
+  --line: #252a22;
+  --line-strong: #3a4136;
+  --volt: #a3e635;
+  --volt-strong: #bef264;
+  --volt-soft: rgba(163, 230, 53, 0.12);
+  --pending: #fbbf24;
+  --pending-soft: rgba(251, 191, 36, 0.13);
+  --approved: #4ade80;
+  --approved-soft: rgba(74, 222, 128, 0.13);
+  --rejected: #f87171;
+  --rejected-soft: rgba(248, 113, 113, 0.12);
+  --paid: #38bdf8;
+  --paid-soft: rgba(56, 189, 248, 0.12);
+  --cancelled: #8b9184;
+  --cancelled-soft: rgba(139, 145, 132, 0.16);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px -14px rgba(0, 0, 0, 0.6);
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans), sans-serif;
+  font-feature-settings: "ss01";
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-mono-num {
+  font-family: var(--font-mono), monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Volt hairline at the very top of the app — the brand thread. */
+.volt-thread {
+  height: 3px;
+  background: linear-gradient(90deg, var(--volt) 0%, var(--volt) 55%, transparent 100%);
+}
+
+/* Staggered page-load reveal (CSS only). */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.reveal {
+  animation: rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.reveal-1 { animation-delay: 0.04s; }
+.reveal-2 { animation-delay: 0.1s; }
+.reveal-3 { animation-delay: 0.16s; }
+.reveal-4 { animation-delay: 0.22s; }
+
+/* Drawer slide-in */
+@keyframes slide-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.drawer-enter { animation: slide-in 0.28s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+
+/* Modal pop */
+@keyframes pop-in {
+  from { transform: translateY(14px) scale(0.985); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+.modal-enter { animation: pop-in 0.26s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+
+::selection {
+  background: var(--volt-soft);
+}
+
+/* Scrollbar (subtle, utilitarian) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
