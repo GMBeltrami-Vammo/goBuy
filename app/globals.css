@@ -2,57 +2,76 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ── goBuy design tokens — "electric utility" ─────────────────────
-   Light: warm paper workshop. Dark: asphalt garage at night.
-   Accent: Vammo volt. IDs and money always in mono, tabular. */
+/* ── goBuy — Vammo Design System, PRODUCT track ────────────────────
+   Source: Vammo DS README + BRANDING_UPDATE_2026.
+   - Primary trio: Black / White / Neon Blue #2EC2FF (default accent).
+   - One neon per view — and it is Blue. Yellow/Pink/Orange only when
+     the color carries meaning (alerts/status), per the 2026 update.
+   - Alerts: "exception palette" (conventional UX) — product surface.
+   - Inter everywhere (pragmatic substitution, DS §08). Tabular nums
+     for figures. 12px cards / 8px buttons-inputs. No emoji.
+   - Backgrounds: white/off-white (light) · solid black (dark).      */
 :root {
-  --bg: #f5f4ef;
-  --surface: #fffefa;
-  --surface-2: #edebe3;
-  --ink: #191b18;
-  --muted: #686d62;
-  --faint: #9aa090;
-  --line: #e0ded4;
-  --line-strong: #c7c5b8;
-  --volt: #65a30d;
-  --volt-strong: #4d7c0f;
-  --volt-soft: rgba(101, 163, 13, 0.13);
-  --pending: #b45309;
-  --pending-soft: rgba(180, 83, 9, 0.12);
-  --approved: #15803d;
-  --approved-soft: rgba(21, 128, 61, 0.12);
-  --rejected: #b91c1c;
-  --rejected-soft: rgba(185, 28, 28, 0.1);
-  --paid: #0369a1;
-  --paid-soft: rgba(3, 105, 161, 0.11);
-  --cancelled: #80857b;
-  --cancelled-soft: rgba(128, 133, 123, 0.14);
-  --shadow: 0 1px 2px rgba(25, 27, 24, 0.05), 0 8px 24px -12px rgba(25, 27, 24, 0.18);
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --surface-2: #f0f0f0;
+  --ink: #000000;
+  --muted: #595959; /* DS grayscale */
+  --faint: #8d8d8d;
+  --line: #e6e6e6;
+  --line-strong: #cbcbcb;
+
+  /* Brand accent — Neon Blue + tonal scale (DS §06) */
+  --accent: #2ec2ff;
+  --accent-strong: #0ab8ff; /* mid-dark: hover / info-alert tone */
+  --accent-deep: #0099ef;   /* dark: text-on-white accent */
+  --accent-soft: rgba(46, 194, 255, 0.14);
+
+  /* Status tokens — conventional alert palette (DS §07 exception),
+     text tones darkened for AA on light tints (vammo-ui badge style). */
+  --pending: #9c8412;        /* warning #EFE133 family */
+  --pending-soft: rgba(239, 225, 51, 0.18);
+  --approved: #4c8c3b;       /* success #66BA50 family */
+  --approved-soft: rgba(102, 186, 80, 0.14);
+  --rejected: #c03b35;       /* error #DB4841 family */
+  --rejected-soft: rgba(219, 72, 65, 0.12);
+  --paid: #0880c2;           /* info #0BA1F6 family */
+  --paid-soft: rgba(11, 161, 246, 0.12);
+  --cancelled: #8d8d8d;
+  --cancelled-soft: rgba(141, 141, 141, 0.16);
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 6px 20px -10px rgba(0, 0, 0, 0.12);
 }
 
 .dark {
-  --bg: #0f110e;
-  --surface: #161914;
-  --surface-2: #1d211b;
-  --ink: #e8ebe1;
-  --muted: #a0a797;
-  --faint: #6e7567;
-  --line: #252a22;
-  --line-strong: #3a4136;
-  --volt: #a3e635;
-  --volt-strong: #bef264;
-  --volt-soft: rgba(163, 230, 53, 0.12);
-  --pending: #fbbf24;
-  --pending-soft: rgba(251, 191, 36, 0.13);
-  --approved: #4ade80;
-  --approved-soft: rgba(74, 222, 128, 0.13);
-  --rejected: #f87171;
-  --rejected-soft: rgba(248, 113, 113, 0.12);
-  --paid: #38bdf8;
-  --paid-soft: rgba(56, 189, 248, 0.12);
-  --cancelled: #8b9184;
-  --cancelled-soft: rgba(139, 145, 132, 0.16);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px -14px rgba(0, 0, 0, 0.6);
+  /* DS §12: solid black is a canonical background (BackOffice dark). */
+  --bg: #000000;
+  --surface: #0e0e0e;
+  --surface-2: #1a1a1a;
+  --ink: #ffffff;
+  --muted: #bcb9b9; /* DS grayscale */
+  --faint: #8d8d8d;
+  --line: #242424;
+  --line-strong: #3d3d3d;
+
+  --accent: #2ec2ff;
+  --accent-strong: #60d1ff; /* mid-light reads better on black */
+  --accent-deep: #93dfff;
+  --accent-soft: rgba(46, 194, 255, 0.16);
+
+  /* Base alert hexes are neon enough on black. */
+  --pending: #efe133;
+  --pending-soft: rgba(239, 225, 51, 0.14);
+  --approved: #66ba50;
+  --approved-soft: rgba(102, 186, 80, 0.15);
+  --rejected: #db4841;
+  --rejected-soft: rgba(219, 72, 65, 0.16);
+  --paid: #0ba1f6;
+  --paid-soft: rgba(11, 161, 246, 0.16);
+  --cancelled: #8d8d8d;
+  --cancelled-soft: rgba(141, 141, 141, 0.2);
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px -12px rgba(0, 0, 0, 0.7);
 }
 
 html {
@@ -63,22 +82,21 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-sans), sans-serif;
-  font-feature-settings: "ss01";
   -webkit-font-smoothing: antialiased;
 }
 
-.font-mono-num {
-  font-family: var(--font-mono), monospace;
+/* Tabular figures for IDs, money and any column of numbers (DS §08). */
+.v-tabular {
   font-variant-numeric: tabular-nums;
 }
 
-/* Volt hairline at the very top of the app — the brand thread. */
-.volt-thread {
+/* Neon Blue hairline at the very top — the brand thread. */
+.brand-thread {
   height: 3px;
-  background: linear-gradient(90deg, var(--volt) 0%, var(--volt) 55%, transparent 100%);
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent) 55%, transparent 100%);
 }
 
-/* Staggered page-load reveal (CSS only). */
+/* Staggered page-load reveal (CSS only). DS motion: no bounce. */
 @keyframes rise {
   from {
     opacity: 0;
@@ -90,7 +108,7 @@ body {
   }
 }
 .reveal {
-  animation: rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: rise 0.32s cubic-bezier(0.2, 0, 0, 1) both;
 }
 .reveal-1 { animation-delay: 0.04s; }
 .reveal-2 { animation-delay: 0.1s; }
@@ -102,30 +120,30 @@ body {
   from { transform: translateX(24px); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
 }
-.drawer-enter { animation: slide-in 0.28s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.drawer-enter { animation: slide-in 0.2s cubic-bezier(0.2, 0, 0, 1) both; }
 
 /* Modal pop */
 @keyframes pop-in {
-  from { transform: translateY(14px) scale(0.985); opacity: 0; }
-  to { transform: translateY(0) scale(1); opacity: 1; }
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
-.modal-enter { animation: pop-in 0.26s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.modal-enter { animation: pop-in 0.2s cubic-bezier(0.2, 0, 0, 1) both; }
 
-/* Form controls */
+/* Form controls — 8px radius per DS product track. */
 .input {
   width: 100%;
   border: 1px solid var(--line-strong);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--bg);
   color: var(--ink);
   padding: 8px 12px;
   font-size: 14px;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
 .input:focus {
-  border-color: var(--volt);
-  box-shadow: 0 0 0 3px var(--volt-soft);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .input-ghost {
   width: 100%;
@@ -142,10 +160,9 @@ body {
 }
 
 ::selection {
-  background: var(--volt-soft);
+  background: var(--accent-soft);
 }
 
-/* Scrollbar (subtle, utilitarian) */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent;

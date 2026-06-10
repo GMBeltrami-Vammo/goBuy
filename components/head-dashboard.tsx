@@ -120,14 +120,14 @@ export function HeadDashboard({
           </p>
         </div>
         {pending.length > 0 && (
-          <span className="rounded-full bg-[var(--pending-soft)] px-4 py-1.5 font-mono-num text-sm font-bold text-[var(--pending)]">
+          <span className="rounded-full bg-[var(--pending-soft)] px-4 py-1.5 v-tabular text-sm font-bold text-[var(--pending)]">
             {pending.length} pendente{pending.length === 1 ? "" : "s"}
           </span>
         )}
       </div>
 
       {toast && (
-        <p className="reveal mt-5 rounded-xl border border-[var(--approved)] bg-[var(--approved-soft)] px-4 py-2.5 text-sm text-[var(--approved)]">
+        <p className="reveal mt-5 rounded-lg border border-[var(--approved)] bg-[var(--approved-soft)] px-4 py-2.5 text-sm text-[var(--approved)]">
           {toast}
         </p>
       )}
@@ -139,7 +139,7 @@ export function HeadDashboard({
         <Stat label="Disponível" value={formatBRL(totals.available)} tone="approved" />
       </div>
       {isMock && (
-        <p className="mt-2 font-mono-num text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">
+        <p className="mt-2 v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">
           * orçamento simulado (source: mock) — substituível via finance.cost_center_budgets
         </p>
       )}
@@ -152,17 +152,17 @@ export function HeadDashboard({
           return (
             <div
               key={cc.id}
-              className="flex items-center gap-4 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 shadow-[var(--shadow)]"
+              className="flex items-center gap-4 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 shadow-[var(--shadow)]"
             >
               <BudgetDonut consumed={consumed} budget={budget} />
               <div className="min-w-0">
-                <p className="font-mono-num text-[10px] uppercase tracking-widest text-[var(--faint)]">
+                <p className="v-tabular text-[10px] uppercase tracking-widest text-[var(--faint)]">
                   {cc.code}
                 </p>
                 <p className="mt-0.5 truncate text-sm font-semibold" title={cc.name}>
                   {cc.name}
                 </p>
-                <p className="mt-2 font-mono-num text-xs text-[var(--muted)]">
+                <p className="mt-2 v-tabular text-xs text-[var(--muted)]">
                   <span className="text-[var(--ink)]">{formatBRL(consumed)}</span>
                   {budget > 0 && <> / {formatBRL(budget)}</>}
                 </p>
@@ -173,9 +173,9 @@ export function HeadDashboard({
       </div>
 
       {/* Pending queue */}
-      <div className="reveal reveal-4 mt-8 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
+      <div className="reveal reveal-4 mt-8 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-5 py-3.5">
-          <h2 className="font-mono-num text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
+          <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
             Aguardando sua aprovação
           </h2>
           <div className="flex items-center gap-1 text-xs">
@@ -192,7 +192,7 @@ export function HeadDashboard({
                 onClick={() => setSortKey(k)}
                 className={`rounded-full px-3 py-1 transition ${
                   sortKey === k
-                    ? "bg-[var(--volt-soft)] font-semibold text-[var(--volt)]"
+                    ? "bg-[var(--accent-soft)] font-semibold text-[var(--accent)]"
                     : "text-[var(--muted)] hover:text-[var(--ink)]"
                 }`}
               >
@@ -206,7 +206,7 @@ export function HeadDashboard({
           <p className="px-5 py-12 text-center text-sm text-[var(--muted)]">Carregando…</p>
         ) : pending.length === 0 ? (
           <p className="px-5 py-12 text-center text-sm text-[var(--faint)]">
-            Nenhuma solicitação pendente. ✨
+            Nenhuma solicitação pendente por aqui.
           </p>
         ) : (
           <ul>
@@ -216,7 +216,7 @@ export function HeadDashboard({
                   onClick={() => setOpenRequest(r)}
                   className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-1 border-b border-[var(--line)] px-5 py-3.5 text-left transition last:border-b-0 hover:bg-[var(--surface-2)] sm:grid-cols-[90px_1fr_110px_auto_120px_90px]"
                 >
-                  <span className="font-mono-num text-xs font-semibold text-[var(--volt)]">
+                  <span className="v-tabular text-xs font-semibold text-[var(--accent)]">
                     {r.display_id}
                   </span>
                   <span className="min-w-0">
@@ -228,13 +228,13 @@ export function HeadDashboard({
                   <span className="hidden sm:block">
                     <TypeBadge type={r.request_type} />
                   </span>
-                  <span className="text-right font-mono-num text-sm font-bold">
+                  <span className="text-right v-tabular text-sm font-bold">
                     {formatBRL(Number(r.total_amount))}
                   </span>
-                  <span className="hidden text-right font-mono-num text-xs text-[var(--muted)] sm:block">
+                  <span className="hidden text-right v-tabular text-xs text-[var(--muted)] sm:block">
                     {formatDate(r.created_at)}
                   </span>
-                  <span className="hidden justify-self-end text-xs font-semibold text-[var(--volt)] sm:block">
+                  <span className="hidden justify-self-end text-xs font-semibold text-[var(--accent)] sm:block">
                     Revisar →
                   </span>
                 </button>
@@ -246,9 +246,9 @@ export function HeadDashboard({
 
       {/* Recent decisions */}
       {recent.length > 0 && (
-        <div className="mt-6 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
+        <div className="mt-6 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
           <div className="border-b border-[var(--line)] px-5 py-3.5">
-            <h2 className="font-mono-num text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
+            <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
               Recentes
             </h2>
           </div>
@@ -259,11 +259,11 @@ export function HeadDashboard({
                   onClick={() => setOpenRequest(r)}
                   className="flex w-full items-center gap-4 border-b border-[var(--line)] px-5 py-3 text-left transition last:border-b-0 hover:bg-[var(--surface-2)]"
                 >
-                  <span className="font-mono-num text-xs font-semibold text-[var(--volt)]">
+                  <span className="v-tabular text-xs font-semibold text-[var(--accent)]">
                     {r.display_id}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm">{r.supplier_name}</span>
-                  <span className="hidden font-mono-num text-xs text-[var(--muted)] sm:block">
+                  <span className="hidden v-tabular text-xs text-[var(--muted)] sm:block">
                     {formatBRL(Number(r.total_amount))}
                   </span>
                   <StatusBadge status={r.status} />
@@ -301,12 +301,12 @@ function Stat({
   tone?: "pending" | "approved";
 }) {
   return (
-    <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 shadow-[var(--shadow)]">
-      <p className="font-mono-num text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">
+    <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 shadow-[var(--shadow)]">
+      <p className="v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">
         {label}
       </p>
       <p
-        className="mt-1.5 truncate font-mono-num text-lg font-bold"
+        className="mt-1.5 truncate v-tabular text-lg font-bold"
         style={tone ? { color: `var(--${tone})` } : undefined}
         title={value}
       >

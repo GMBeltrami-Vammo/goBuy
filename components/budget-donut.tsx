@@ -25,7 +25,7 @@ export function BudgetDonut({
         ]
       : [{ name: "Sem orçamento", value: 1 }];
 
-  const consumedColor = over ? "var(--rejected)" : "var(--volt)";
+  const consumedColor = over ? "var(--rejected)" : "var(--accent)";
   const colors = budget > 0 ? [consumedColor, "var(--line)"] : ["var(--line)"];
   const pct = budget > 0 ? Math.round((consumed / budget) * 100) : null;
 
@@ -68,7 +68,7 @@ export function BudgetDonut({
         ) : (
           <>
             <span
-              className="font-mono-num text-lg font-bold"
+              className="v-tabular text-lg font-bold"
               style={{ color: over ? "var(--rejected)" : "var(--ink)" }}
             >
               {pct}%

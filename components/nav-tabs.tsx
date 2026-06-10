@@ -30,7 +30,7 @@ export function NavTabs({
             href={t.href}
             className={`-mb-px border-b-2 px-4 py-2.5 text-sm transition ${
               active
-                ? "border-[var(--volt)] font-semibold text-[var(--ink)]"
+                ? "border-[var(--accent)] font-semibold text-[var(--ink)]"
                 : "border-transparent text-[var(--muted)] hover:text-[var(--ink)]"
             }`}
           >

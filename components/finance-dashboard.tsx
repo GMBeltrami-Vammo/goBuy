@@ -132,23 +132,23 @@ export function FinanceDashboard({
         </div>
         <button
           onClick={exportCSV}
-          className="rounded-xl border border-[var(--line-strong)] px-4 py-2 text-sm font-medium transition hover:border-[var(--volt)]"
+          className="rounded-lg border border-[var(--line-strong)] px-4 py-2 text-sm font-medium transition hover:border-[var(--accent)]"
         >
-          ⬇ Exportar CSV
+          Exportar CSV
         </button>
       </div>
 
       {toast && (
-        <p className="reveal mt-5 rounded-xl border border-[var(--approved)] bg-[var(--approved-soft)] px-4 py-2.5 text-sm text-[var(--approved)]">
+        <p className="reveal mt-5 rounded-lg border border-[var(--approved)] bg-[var(--approved-soft)] px-4 py-2.5 text-sm text-[var(--approved)]">
           {toast}
         </p>
       )}
 
       {/* Payment queue */}
       {canMarkPaid && toPay.length > 0 && (
-        <div className="reveal reveal-2 mt-7 overflow-hidden rounded-2xl border border-[var(--paid)] bg-[var(--surface)] shadow-[var(--shadow)]">
+        <div className="reveal reveal-2 mt-7 overflow-hidden rounded-xl border border-[var(--paid)] bg-[var(--surface)] shadow-[var(--shadow)]">
           <div className="border-b border-[var(--line)] bg-[var(--paid-soft)] px-5 py-3">
-            <h2 className="font-mono-num text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--paid)]">
+            <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--paid)]">
               Fila de pagamento · {toPay.length} aprovada{toPay.length === 1 ? "" : "s"} ·{" "}
               {formatBRL(toPay.reduce((a, r) => a + Number(r.total_amount), 0))}
             </h2>
@@ -163,7 +163,7 @@ export function FinanceDashboard({
                   onClick={() => setOpenRequest(r)}
                   className="flex min-w-0 flex-1 items-center gap-4 text-left"
                 >
-                  <span className="font-mono-num text-xs font-semibold text-[var(--volt)]">
+                  <span className="v-tabular text-xs font-semibold text-[var(--accent)]">
                     {r.display_id}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -172,7 +172,7 @@ export function FinanceDashboard({
                   <span className="hidden text-xs text-[var(--muted)] sm:block">
                     {r.cost_centers?.department}
                   </span>
-                  <span className="font-mono-num text-sm font-bold">
+                  <span className="v-tabular text-sm font-bold">
                     {formatBRL(Number(r.total_amount))}
                   </span>
                 </button>
@@ -181,7 +181,7 @@ export function FinanceDashboard({
                   disabled={busyId === r.id}
                   className="rounded-lg bg-[var(--paid)] px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-60"
                 >
-                  {busyId === r.id ? "…" : "💸 Marcar paga"}
+                  {busyId === r.id ? "…" : "Marcar paga"}
                 </button>
               </li>
             ))}
@@ -190,7 +190,7 @@ export function FinanceDashboard({
       )}
 
       {/* All requests */}
-      <div className="reveal reveal-3 mt-7 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
+      <div className="reveal reveal-3 mt-7 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--line)] px-5 py-3.5">
           <input
             value={search}
@@ -216,7 +216,7 @@ export function FinanceDashboard({
               <option key={d}>{d}</option>
             ))}
           </select>
-          <span className="ml-auto font-mono-num text-[11px] text-[var(--faint)]">
+          <span className="ml-auto v-tabular text-[11px] text-[var(--faint)]">
             {filtered.length} de {requests?.length ?? 0}
           </span>
         </div>
@@ -235,7 +235,7 @@ export function FinanceDashboard({
                   onClick={() => setOpenRequest(r)}
                   className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-1 border-b border-[var(--line)] px-5 py-3 text-left transition last:border-b-0 hover:bg-[var(--surface-2)] sm:grid-cols-[90px_1fr_130px_auto_110px_90px_110px]"
                 >
-                  <span className="font-mono-num text-xs font-semibold text-[var(--volt)]">
+                  <span className="v-tabular text-xs font-semibold text-[var(--accent)]">
                     {r.display_id}
                   </span>
                   <span className="min-w-0">
@@ -250,10 +250,10 @@ export function FinanceDashboard({
                   <span className="hidden sm:block">
                     <TypeBadge type={r.request_type} />
                   </span>
-                  <span className="hidden text-right font-mono-num text-sm font-semibold sm:block">
+                  <span className="hidden text-right v-tabular text-sm font-semibold sm:block">
                     {formatBRL(Number(r.total_amount))}
                   </span>
-                  <span className="hidden text-right font-mono-num text-xs text-[var(--muted)] sm:block">
+                  <span className="hidden text-right v-tabular text-xs text-[var(--muted)] sm:block">
                     {formatDate(r.created_at)}
                   </span>
                   <span className="justify-self-end">

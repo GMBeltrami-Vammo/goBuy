@@ -1,17 +1,13 @@
 import type { Metadata } from "next";
-import { Archivo, Spline_Sans_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 
 import "./globals.css";
 
-const sans = Archivo({
+// Vammo DS product track: Inter for all product UI (Supria Sans is
+// brand-track / design-preview only — Monotype license).
+const sans = Inter({
   subsets: ["latin"],
   variable: "--font-sans",
-  display: "swap",
-});
-
-const mono = Spline_Sans_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
   display: "swap",
 });
 
@@ -29,8 +25,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       </head>
-      <body className={`${sans.variable} ${mono.variable} min-h-screen`}>
-        <div className="volt-thread" />
+      <body className={`${sans.variable} min-h-screen`}>
+        <div className="brand-thread" />
         {children}
       </body>
     </html>

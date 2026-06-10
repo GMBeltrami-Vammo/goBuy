@@ -135,7 +135,7 @@ export function NewRequestModal({
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 p-4 backdrop-blur-[2px] sm:p-8"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="modal-enter w-full max-w-2xl rounded-2xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
+      <div className="modal-enter w-full max-w-2xl rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
         <div className="flex items-center justify-between border-b border-[var(--line)] px-6 py-4">
           <h2 className="text-lg font-bold">Nova solicitação</h2>
           <button onClick={onClose} className="text-[var(--faint)] hover:text-[var(--ink)]">✕</button>
@@ -146,17 +146,17 @@ export function NewRequestModal({
           <div className="flex flex-wrap gap-2">
             {(
               [
-                ["products", "📦 Produtos / materiais"],
-                ["service", "💼 Contratação de serviço"],
-                ["advance", "💵 Adiantamento"],
+                ["products", "Produtos / materiais"],
+                ["service", "Contratação de serviço"],
+                ["advance", "Adiantamento"],
               ] as [RequestType, string][]
             ).map(([t, label]) => (
               <button
                 key={t}
                 onClick={() => setType(t)}
-                className={`rounded-xl border px-4 py-2 text-sm transition ${
+                className={`rounded-lg border px-4 py-2 text-sm transition ${
                   type === t
-                    ? "border-[var(--volt)] bg-[var(--volt-soft)] font-semibold text-[var(--ink)]"
+                    ? "border-[var(--accent)] bg-[var(--accent-soft)] font-semibold text-[var(--ink)]"
                     : "border-[var(--line)] text-[var(--muted)] hover:border-[var(--line-strong)]"
                 }`}
               >
@@ -220,10 +220,10 @@ export function NewRequestModal({
 
           {/* Products */}
           {type === "products" && (
-            <div className="rounded-xl border border-[var(--line)]">
+            <div className="rounded-lg border border-[var(--line)]">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-[var(--line)] text-left font-mono-num text-[10px] uppercase tracking-[0.15em] text-[var(--faint)]">
+                  <tr className="border-b border-[var(--line)] text-left v-tabular text-[10px] uppercase tracking-[0.15em] text-[var(--faint)]">
                     <th className="px-3 py-2 font-medium">Descrição</th>
                     <th className="w-16 px-2 py-2 font-medium">Qtd</th>
                     <th className="w-16 px-2 py-2 font-medium">Un.</th>
@@ -278,7 +278,7 @@ export function NewRequestModal({
                             className="input-ghost text-right"
                           />
                         </td>
-                        <td className="px-2 py-1 text-right font-mono-num text-xs font-semibold">
+                        <td className="px-2 py-1 text-right v-tabular text-xs font-semibold">
                           {formatBRL(line)}
                         </td>
                         <td className="pr-2 text-center">
@@ -299,11 +299,11 @@ export function NewRequestModal({
               <div className="flex items-center justify-between px-3 py-2">
                 <button
                   onClick={() => setItems((prev) => [...prev, { ...EMPTY_ITEM }])}
-                  className="text-sm font-semibold text-[var(--volt)] hover:underline"
+                  className="text-sm font-semibold text-[var(--accent)] hover:underline"
                 >
                   + Adicionar item
                 </button>
-                <p className="font-mono-num text-sm">
+                <p className="v-tabular text-sm">
                   <span className="text-[var(--muted)]">Total </span>
                   <span className="font-bold">{formatBRL(itemsTotal)}</span>
                 </p>
@@ -349,8 +349,8 @@ export function NewRequestModal({
           {/* Advance */}
           {type === "advance" && (
             <div className="space-y-4">
-              <p className="rounded-xl border border-[var(--pending)] bg-[var(--pending-soft)] px-4 py-2.5 text-xs text-[var(--pending)]">
-                ⚠ Adiantamentos exigem prestação de contas. Valores acima de R$ 5.000 passam por
+              <p className="rounded-lg border border-[var(--pending)] bg-[var(--pending-soft)] px-4 py-2.5 text-xs text-[var(--pending)]">
+                Adiantamentos exigem prestação de contas. Valores acima de R$ 5.000 passam por
                 validação adicional do Financeiro.
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -399,30 +399,30 @@ export function NewRequestModal({
           </Field>
 
           {error && (
-            <p className="rounded-xl border border-[var(--rejected)] bg-[var(--rejected-soft)] px-4 py-2.5 text-sm text-[var(--rejected)]">
+            <p className="rounded-lg border border-[var(--rejected)] bg-[var(--rejected-soft)] px-4 py-2.5 text-sm text-[var(--rejected)]">
               {error}
             </p>
           )}
         </div>
 
         <div className="flex items-center justify-between border-t border-[var(--line)] px-6 py-4">
-          <p className="font-mono-num text-sm">
+          <p className="v-tabular text-sm">
             <span className="text-[var(--muted)]">Total da solicitação </span>
             <span className="text-lg font-bold">{formatBRL(total)}</span>
           </p>
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="rounded-xl border border-[var(--line-strong)] px-4 py-2 text-sm font-medium hover:bg-[var(--surface-2)]"
+              className="rounded-lg border border-[var(--line-strong)] px-4 py-2 text-sm font-medium hover:bg-[var(--surface-2)]"
             >
               Cancelar
             </button>
             <button
               onClick={submit}
               disabled={sending}
-              className="rounded-xl bg-[var(--volt)] px-5 py-2 text-sm font-bold text-[#101210] transition hover:opacity-90 disabled:opacity-60"
+              className="rounded-lg bg-[var(--accent)] px-5 py-2 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-60"
             >
-              {sending ? "Enviando…" : "↗ Enviar solicitação"}
+              {sending ? "Enviando…" : "Enviar solicitação"}
             </button>
           </div>
         </div>

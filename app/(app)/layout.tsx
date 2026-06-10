@@ -20,9 +20,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <header className="flex items-center justify-between gap-4 pb-2 pt-6">
         <div className="flex items-baseline gap-3">
           <span className="text-xl font-bold tracking-tight">
-            go<span className="text-[var(--volt)]">Buy</span>
+            go<span className="text-[var(--accent)]">Buy</span>
           </span>
-          <span className="hidden font-mono-num text-[10px] uppercase tracking-[0.3em] text-[var(--faint)] sm:block">
+          <span className="hidden v-tabular text-[10px] uppercase tracking-[0.3em] text-[var(--faint)] sm:block">
             Vammo · Compras
           </span>
         </div>
@@ -38,7 +38,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--volt-soft)] text-xs font-bold text-[var(--volt)]">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--accent-soft)] text-xs font-bold text-[var(--accent)]">
                 {ctx.fullName.charAt(0).toUpperCase()}
               </span>
             )}
@@ -54,7 +54,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       <main className="flex-1 pb-20 pt-8">{children}</main>
 
-      <footer className="border-t border-[var(--line)] py-5 text-center font-mono-num text-[10px] uppercase tracking-[0.25em] text-[var(--faint)]">
+      <footer className="border-t border-[var(--line)] py-5 text-center v-tabular text-[10px] uppercase tracking-[0.25em] text-[var(--faint)]">
         goBuy — plataforma de compras Vammo
       </footer>
     </div>

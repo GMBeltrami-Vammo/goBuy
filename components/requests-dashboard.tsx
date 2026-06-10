@@ -75,14 +75,14 @@ export function RequestsDashboard({
         </div>
         <button
           onClick={() => setShowNew(true)}
-          className="rounded-xl bg-[var(--volt)] px-5 py-2.5 text-sm font-bold text-[#101210] shadow-[var(--shadow)] transition hover:opacity-90"
+          className="rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-bold text-black shadow-[var(--shadow)] transition hover:opacity-90"
         >
           + Nova solicitação
         </button>
       </div>
 
       {toast && (
-        <p className="reveal mt-5 rounded-xl border border-[var(--approved)] bg-[var(--approved-soft)] px-4 py-2.5 text-sm text-[var(--approved)]">
+        <p className="reveal mt-5 rounded-lg border border-[var(--approved)] bg-[var(--approved-soft)] px-4 py-2.5 text-sm text-[var(--approved)]">
           {toast}
         </p>
       )}
@@ -104,12 +104,12 @@ export function RequestsDashboard({
         <SummaryCard label="Total solicitado" value={formatBRL(summary.totalValue)} small />
       </div>
 
-      <div className="reveal reveal-3 mt-8 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
+      <div className="reveal reveal-3 mt-8 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
         <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-3.5">
-          <h2 className="font-mono-num text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
+          <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
             Minhas solicitações
           </h2>
-          <span className="font-mono-num text-[11px] text-[var(--faint)]">
+          <span className="v-tabular text-[11px] text-[var(--faint)]">
             {requests?.length ?? "—"}
           </span>
         </div>
@@ -118,10 +118,10 @@ export function RequestsDashboard({
           <p className="px-5 py-14 text-center text-sm text-[var(--muted)]">Carregando…</p>
         ) : requests.length === 0 ? (
           <div className="px-5 py-14 text-center">
-            <p className="text-sm text-[var(--muted)]">Você ainda não tem solicitações.</p>
+            <p className="text-sm text-[var(--muted)]">Nenhuma solicitação por aqui ainda.</p>
             <button
               onClick={() => setShowNew(true)}
-              className="mt-3 text-sm font-semibold text-[var(--volt)] hover:underline"
+              className="mt-3 text-sm font-semibold text-[var(--accent)] hover:underline"
             >
               Criar a primeira →
             </button>
@@ -134,7 +134,7 @@ export function RequestsDashboard({
                   onClick={() => setOpenRequest(r)}
                   className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-1 border-b border-[var(--line)] px-5 py-3.5 text-left transition last:border-b-0 hover:bg-[var(--surface-2)] sm:grid-cols-[90px_1fr_auto_110px_90px_110px]"
                 >
-                  <span className="font-mono-num text-xs font-semibold text-[var(--volt)]">
+                  <span className="v-tabular text-xs font-semibold text-[var(--accent)]">
                     {r.display_id}
                   </span>
                   <span className="min-w-0">
@@ -146,10 +146,10 @@ export function RequestsDashboard({
                   <span className="hidden sm:block">
                     <TypeBadge type={r.request_type} />
                   </span>
-                  <span className="hidden text-right font-mono-num text-sm font-semibold sm:block">
+                  <span className="hidden text-right v-tabular text-sm font-semibold sm:block">
                     {formatBRL(Number(r.total_amount))}
                   </span>
-                  <span className="hidden text-right font-mono-num text-xs text-[var(--muted)] sm:block">
+                  <span className="hidden text-right v-tabular text-xs text-[var(--muted)] sm:block">
                     {formatDate(r.created_at)}
                   </span>
                   <span className="justify-self-end">
@@ -205,17 +205,17 @@ function SummaryCard({
   small?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 shadow-[var(--shadow)]">
-      <p className="font-mono-num text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">
+    <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 shadow-[var(--shadow)]">
+      <p className="v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">
         {label}
       </p>
       <p
-        className={`mt-1.5 font-mono-num font-bold ${small ? "text-lg" : "text-2xl"}`}
+        className={`mt-1.5 v-tabular font-bold ${small ? "text-lg" : "text-2xl"}`}
         style={tone ? { color: `var(--${tone})` } : undefined}
       >
         {value}
       </p>
-      {sub && <p className="mt-0.5 font-mono-num text-xs text-[var(--muted)]">{sub}</p>}
+      {sub && <p className="mt-0.5 v-tabular text-xs text-[var(--muted)]">{sub}</p>}
     </div>
   );
 }

@@ -164,7 +164,7 @@ export function RequestDrawer({
         <div className="sticky top-0 z-10 border-b border-[var(--line)] bg-[var(--surface)] px-6 py-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="font-mono-num text-lg font-bold text-[var(--volt)]">
+              <p className="v-tabular text-lg font-bold text-[var(--accent)]">
                 {request.display_id}
               </p>
               <p className="mt-0.5 text-sm font-semibold">{request.supplier_name}</p>
@@ -230,10 +230,10 @@ export function RequestDrawer({
                   {items.map((it) => (
                     <tr key={it.id} className="border-b border-[var(--line)] last:border-b-0">
                       <td className="py-1.5 pr-2">{it.description}</td>
-                      <td className="whitespace-nowrap py-1.5 pr-2 text-right font-mono-num text-xs text-[var(--muted)]">
+                      <td className="whitespace-nowrap py-1.5 pr-2 text-right v-tabular text-xs text-[var(--muted)]">
                         {Number(it.quantity)} {it.unit}
                       </td>
-                      <td className="whitespace-nowrap py-1.5 text-right font-mono-num text-xs font-semibold">
+                      <td className="whitespace-nowrap py-1.5 text-right v-tabular text-xs font-semibold">
                         {formatBRL(Number(it.line_total))}
                       </td>
                     </tr>
@@ -258,13 +258,13 @@ export function RequestDrawer({
                   <li key={d.id}>
                     <button
                       onClick={() => download(d.id)}
-                      className="flex w-full items-center gap-2.5 rounded-lg border border-[var(--line)] px-3 py-2 text-left text-sm transition hover:border-[var(--volt)]"
+                      className="flex w-full items-center gap-2.5 rounded-lg border border-[var(--line)] px-3 py-2 text-left text-sm transition hover:border-[var(--accent)]"
                     >
-                      <span className="font-mono-num rounded bg-[var(--volt-soft)] px-1.5 py-0.5 text-[10px] font-bold uppercase text-[var(--volt)]">
+                      <span className="v-tabular rounded bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-bold uppercase text-[var(--accent)]">
                         {DOC_TYPE_LABEL[d.doc_type] ?? d.doc_type}
                       </span>
                       <span className="min-w-0 flex-1 truncate">{d.original_filename}</span>
-                      <span className="font-mono-num text-[10px] text-[var(--faint)]">
+                      <span className="v-tabular text-[10px] text-[var(--faint)]">
                         {d.size_bytes ? `${Math.max(1, Math.round(d.size_bytes / 1024))} KB` : ""}
                       </span>
                     </button>
@@ -299,9 +299,9 @@ export function RequestDrawer({
                 <button
                   onClick={() => fileRef.current?.click()}
                   disabled={busy}
-                  className="flex-1 rounded-lg border border-dashed border-[var(--line-strong)] px-3 py-2 text-xs text-[var(--muted)] transition hover:border-[var(--volt)] hover:text-[var(--volt)] disabled:opacity-50"
+                  className="flex-1 rounded-lg border border-dashed border-[var(--line-strong)] px-3 py-2 text-xs text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
                 >
-                  ⬆ {busy ? "Enviando…" : "Anexar PDF (NF, cotação…)"}
+                  {busy ? "Enviando…" : "Anexar PDF (NF, cotação…)"}
                 </button>
               </div>
             )}
@@ -313,10 +313,10 @@ export function RequestDrawer({
             <ol className="space-y-2.5">
               {events.map((ev) => (
                 <li key={ev.id} className="flex gap-3 text-sm">
-                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--volt)]" />
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" />
                   <div>
                     <p className="font-medium">{EVENT_LABEL[ev.event_type] ?? ev.event_type}</p>
-                    <p className="font-mono-num text-[11px] text-[var(--faint)]">
+                    <p className="v-tabular text-[11px] text-[var(--faint)]">
                       {formatDateTime(ev.created_at)}
                       {ev.actor_email ? ` · ${ev.actor_email}` : ""}
                     </p>
@@ -327,7 +327,7 @@ export function RequestDrawer({
           </section>
 
           {error && (
-            <p className="rounded-xl border border-[var(--rejected)] bg-[var(--rejected-soft)] px-4 py-2.5 text-sm text-[var(--rejected)]">
+            <p className="rounded-lg border border-[var(--rejected)] bg-[var(--rejected-soft)] px-4 py-2.5 text-sm text-[var(--rejected)]">
               {error}
             </p>
           )}
@@ -353,16 +353,16 @@ export function RequestDrawer({
                 <button
                   onClick={approve}
                   disabled={busy}
-                  className="flex-1 rounded-xl bg-[var(--approved)] px-4 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
+                  className="flex-1 rounded-lg bg-[var(--approved)] px-4 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
                 >
-                  ✓ Aprovar
+                  Aprovar
                 </button>
                 <button
                   onClick={() => setRejecting(true)}
                   disabled={busy}
-                  className="flex-1 rounded-xl border border-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-[var(--rejected)] transition hover:bg-[var(--rejected-soft)] disabled:opacity-60"
+                  className="flex-1 rounded-lg border border-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-[var(--rejected)] transition hover:bg-[var(--rejected-soft)] disabled:opacity-60"
                 >
-                  ✕ Recusar
+                  Recusar
                 </button>
               </>
             )}
@@ -371,14 +371,14 @@ export function RequestDrawer({
                 <button
                   onClick={reject}
                   disabled={busy}
-                  className="flex-1 rounded-xl bg-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
+                  className="flex-1 rounded-lg bg-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
                 >
                   Confirmar recusa
                 </button>
                 <button
                   onClick={() => setRejecting(false)}
                   disabled={busy}
-                  className="rounded-xl border border-[var(--line-strong)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--surface-2)]"
+                  className="rounded-lg border border-[var(--line-strong)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--surface-2)]"
                 >
                   Voltar
                 </button>
@@ -388,7 +388,7 @@ export function RequestDrawer({
               <button
                 onClick={cancel}
                 disabled={busy}
-                className="flex-1 rounded-xl border border-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-[var(--rejected)] transition hover:bg-[var(--rejected-soft)] disabled:opacity-60"
+                className="flex-1 rounded-lg border border-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-[var(--rejected)] transition hover:bg-[var(--rejected-soft)] disabled:opacity-60"
               >
                 Cancelar solicitação
               </button>
@@ -402,7 +402,7 @@ export function RequestDrawer({
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="mb-2 font-mono-num text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--faint)]">
+    <h3 className="mb-2 v-tabular text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--faint)]">
       {children}
     </h3>
   );
@@ -423,12 +423,12 @@ function Meta({
 }) {
   return (
     <div className={full ? "col-span-2" : ""}>
-      <dt className="font-mono-num text-[10px] uppercase tracking-[0.18em] text-[var(--faint)]">
+      <dt className="v-tabular text-[10px] uppercase tracking-[0.18em] text-[var(--faint)]">
         {label}
       </dt>
       <dd
-        className={`mt-0.5 break-words ${strong ? "font-mono-num text-base font-bold" : ""} ${
-          accent ? "text-[var(--volt)]" : ""
+        className={`mt-0.5 break-words ${strong ? "v-tabular text-base font-bold" : ""} ${
+          accent ? "text-[var(--accent)]" : ""
         }`}
       >
         {value}

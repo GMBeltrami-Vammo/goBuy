@@ -16,18 +16,18 @@ export default async function LoginPage({
     <main className="flex min-h-[calc(100vh-3px)] items-center justify-center px-6">
       <div className="w-full max-w-sm">
         <div className="reveal reveal-1 mb-10 text-center">
-          <p className="font-mono-num text-xs uppercase tracking-[0.35em] text-[var(--faint)]">
+          <p className="v-tabular text-xs uppercase tracking-[0.35em] text-[var(--faint)]">
             Vammo · Financeiro
           </p>
           <h1 className="mt-3 text-5xl font-bold tracking-tight">
-            go<span className="text-[var(--volt)]">Buy</span>
+            go<span className="text-[var(--accent)]">Buy</span>
           </h1>
           <p className="mt-3 text-sm text-[var(--muted)]">
             Solicitações de compra, aprovações e pagamentos — em um só lugar.
           </p>
         </div>
 
-        <div className="reveal reveal-2 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[var(--shadow)]">
+        <div className="reveal reveal-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[var(--shadow)]">
           {error && ERRORS[error] && (
             <p className="mb-4 rounded-lg border border-[var(--rejected)] bg-[var(--rejected-soft)] px-3 py-2 text-sm text-[var(--rejected)]">
               {ERRORS[error]}
@@ -39,7 +39,7 @@ export default async function LoginPage({
           </p>
         </div>
 
-        <p className="reveal reveal-3 mt-8 text-center font-mono-num text-[11px] text-[var(--faint)]">
+        <p className="reveal reveal-3 mt-8 text-center v-tabular text-[11px] text-[var(--faint)]">
           goBuy v1 — plataforma interna de compras
         </p>
       </div>

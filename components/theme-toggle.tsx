@@ -23,7 +23,7 @@ export function ThemeToggle() {
       onClick={toggle}
       aria-label="Alternar tema"
       title="Alternar tema"
-      className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--line)] text-[var(--muted)] transition hover:border-[var(--volt)] hover:text-[var(--ink)]"
+      className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--line)] text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--ink)]"
     >
       {dark === null ? (
         <span className="block h-4 w-4" />
