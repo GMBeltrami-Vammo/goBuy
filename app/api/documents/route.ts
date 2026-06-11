@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import type { Session } from "next-auth";
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
@@ -36,7 +35,7 @@ export async function POST(request: Request) {
   }
 
   // 1) Session + domain gate via NextAuth.
-  const session = (await auth()) as (Session & { supabaseToken?: string }) | null;
+  const session = await auth();
   if (!session?.user?.email || !isVammoEmail(session.user.email)) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
   }

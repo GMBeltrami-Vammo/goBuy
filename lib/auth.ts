@@ -1,7 +1,5 @@
 import { cache } from "react";
 
-import type { Session } from "next-auth";
-
 import { auth } from "@/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { AppRole, SessionContext } from "@/lib/types";
@@ -17,7 +15,7 @@ export const isVammoEmail = (email: string | undefined | null): email is string 
  * Cached per request (React.cache) so layout + pages share one lookup.
  */
 export const getSessionContext = cache(async (): Promise<SessionContext | null> => {
-  const session = (await auth()) as (Session & { supabaseToken?: string }) | null;
+  const session = await auth();
   if (!session?.user?.email || !isVammoEmail(session.user.email)) return null;
 
   const email = session.user.email.toLowerCase();
@@ -38,6 +36,6 @@ export const getSessionContext = cache(async (): Promise<SessionContext | null> 
     isHead: headCenterIds.length > 0,
     headCenterIds,
     roles,
-    supabaseToken: session.supabaseToken ?? "",
+    supabaseToken: session.supabaseToken ?? "",  // "" → unauthenticated Supabase client; RLS blocks all reads
   };
 });

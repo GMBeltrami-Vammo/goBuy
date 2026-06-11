@@ -1,4 +1,3 @@
-import type { Session } from "next-auth";
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
@@ -19,7 +18,7 @@ export async function GET(
     return NextResponse.json({ error: "Identificador inválido." }, { status: 400 });
   }
 
-  const session = (await auth()) as (Session & { supabaseToken?: string }) | null;
+  const session = await auth();
   if (!session?.user?.email || !isVammoEmail(session.user.email)) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
   }
