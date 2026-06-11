@@ -24,6 +24,17 @@ interface AdminData {
   heads: HeadRow[];
   costCenters: CostCenter[];
 }
+interface RequestRow {
+  id: string;
+  display_id: string;
+  status: string;
+  requester_email: string;
+  supplier_name: string;
+  total_amount: number;
+  currency: string;
+  created_at: string;
+  cost_centers?: { code: string; name: string; department: string };
+}
 interface UserSummary {
   email: string;
   roles: AppRole[];
@@ -163,6 +174,11 @@ export function AdminDashboard() {
   const [preview, setPreview] = useState<ImportRow[] | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
+
+  // Cleanup (test data)
+  const [requests, setRequests] = useState<RequestRow[] | null>(null);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const flash = (msg: string, ok = true) => {
     setToast({ msg, ok });
@@ -343,6 +359,44 @@ export function AdminDashboard() {
       const err = (await res.json()) as { error?: string };
       flash(err.error ?? "Erro ao importar", false);
     }
+  };
+
+  const loadRequests = async () => {
+    setRequestsLoading(true);
+    const res = await fetch("/api/admin/cleanup");
+    setRequestsLoading(false);
+    if (res.ok) {
+      const { requests: data } = (await res.json()) as { requests: RequestRow[] };
+      setRequests(data);
+    } else {
+      flash("Erro ao carregar solicitações", false);
+    }
+  };
+
+  const deleteRequest = async (id: string, displayId: string) => {
+    if (!confirm(`Excluir permanentemente ${displayId}? Esta ação não pode ser desfeita.`)) return;
+    setDeletingId(id);
+    const res = await fetch("/api/admin/cleanup", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    setDeletingId(null);
+    if (res.ok) {
+      flash(`${displayId} excluída`);
+      setRequests((prev) => prev?.filter((r) => r.id !== id) ?? null);
+    } else {
+      const err = (await res.json()) as { error?: string };
+      flash(err.error ?? "Erro ao excluir", false);
+    }
+  };
+
+  const STATUS_PT: Record<string, string> = {
+    pending: "Pendente",
+    approved: "Aprovada",
+    rejected: "Rejeitada",
+    cancelled: "Cancelada",
+    paid: "Paga",
   };
 
   // ─── Render ──────────────────────────────────────────────────────────────────
@@ -720,6 +774,96 @@ export function AdminDashboard() {
               </div>
             )}
           </div>
+        </Card>
+      </section>
+
+      {/* ── Section 4: Test data cleanup ─────────────────────────────────── */}
+      <section>
+        <SectionTitle>Dados de teste — solicitações</SectionTitle>
+        <p className="mb-4 text-sm text-[var(--muted)]">
+          Exclui permanentemente uma solicitação e todos os seus documentos, eventos e itens.
+          Use apenas para limpar dados de teste.
+        </p>
+        <Card>
+          <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
+            <span className="text-sm text-[var(--muted)]">
+              {requests === null
+                ? "Clique em carregar para listar as solicitações."
+                : `${requests.length} solicitação(ões) no sistema`}
+            </span>
+            <Btn
+              variant="primary"
+              onClick={() => void loadRequests()}
+              disabled={requestsLoading}
+            >
+              {requestsLoading ? "Carregando..." : requests === null ? "Carregar" : "Atualizar"}
+            </Btn>
+          </div>
+
+          {requests !== null && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--line)]">
+                    <Th>ID</Th>
+                    <Th>Solicitante</Th>
+                    <Th>Fornecedor</Th>
+                    <Th>Centro</Th>
+                    <Th>Status</Th>
+                    <Th>Valor</Th>
+                    <Th>Data</Th>
+                    <Th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {requests.length === 0 ? (
+                    <Empty label="Nenhuma solicitação encontrada." />
+                  ) : (
+                    requests.map((r) => (
+                      <tr
+                        key={r.id}
+                        className="border-b border-[var(--line)] last:border-0"
+                      >
+                        <td className="px-4 py-2.5 font-mono text-xs font-semibold text-[var(--accent)]">
+                          {r.display_id}
+                        </td>
+                        <td className="px-4 py-2.5 font-mono text-xs">{r.requester_email}</td>
+                        <td className="max-w-[160px] truncate px-4 py-2.5 text-[var(--muted)]">
+                          {r.supplier_name}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {r.cost_centers ? (
+                            <span className="font-mono text-xs">{r.cost_centers.code}</span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-xs">{STATUS_PT[r.status] ?? r.status}</td>
+                        <td className="px-4 py-2.5 font-mono text-xs">
+                          {new Intl.NumberFormat("pt-BR", {
+                            style: "currency",
+                            currency: r.currency ?? "BRL",
+                          }).format(r.total_amount)}
+                        </td>
+                        <td className="px-4 py-2.5 text-xs text-[var(--muted)]">
+                          {new Date(r.created_at).toLocaleDateString("pt-BR")}
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          <Btn
+                            variant="ghost"
+                            disabled={deletingId === r.id}
+                            onClick={() => void deleteRequest(r.id, r.display_id)}
+                          >
+                            {deletingId === r.id ? "Excluindo..." : "Excluir"}
+                          </Btn>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
       </section>
     </div>
