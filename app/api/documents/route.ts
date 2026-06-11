@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 
+import type { Session } from "next-auth";
 import { NextResponse } from "next/server";
 
+import { auth } from "@/auth";
 import { isVammoEmail } from "@/lib/auth";
 import { DOCUMENTS_BUCKET, supabaseAdmin } from "@/lib/supabase/admin";
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseBrowser } from "@/lib/supabase/client";
 
 export const runtime = "nodejs";
 
@@ -26,21 +28,19 @@ const sanitizeFilename = (name: string) =>
     .slice(-80);
 
 export async function POST(request: Request) {
-  // 0) Same-origin check (CSRF defense-in-depth for the cookie-bound session).
+  // 0) Same-origin check (CSRF defense-in-depth).
   const origin = request.headers.get("origin");
   const host = request.headers.get("host");
   if (origin && host && new URL(origin).host !== host) {
     return NextResponse.json({ error: "Origem inválida." }, { status: 403 });
   }
 
-  // 1) Session + domain gate (the caller's own cookie-bound client).
-  const supabase = await supabaseServer();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user || !isVammoEmail(user.email)) {
+  // 1) Session + domain gate via NextAuth.
+  const session = (await auth()) as (Session & { supabaseToken?: string }) | null;
+  if (!session?.user?.email || !isVammoEmail(session.user.email)) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
   }
+  const email = session.user.email.toLowerCase();
 
   // 2) Input validation.
   let form: FormData;
@@ -72,8 +72,8 @@ export async function POST(request: Request) {
     );
   }
 
-  // 3) Authorization: the request must be visible to the caller under RLS,
-  //    and must not be in a terminal-negative state.
+  // 3) Authorization: use the user's Supabase token so RLS checks visibility.
+  const supabase = supabaseBrowser(session.supabaseToken ?? "");
   const { data: req } = await supabase
     .from("purchase_requests")
     .select("id, display_id, status")
@@ -104,7 +104,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Falha ao armazenar o arquivo." }, { status: 500 });
   }
 
-  const email = user.email!.toLowerCase();
   const { data: doc, error: insertError } = await admin
     .from("request_documents")
     .insert({

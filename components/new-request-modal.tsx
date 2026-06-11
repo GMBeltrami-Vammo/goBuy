@@ -19,10 +19,12 @@ const UNITS = ["un", "cx", "kg", "par", "m", "L", "h"];
 
 export function NewRequestModal({
   costCenters,
+  supabaseToken,
   onClose,
   onSubmitted,
 }: {
   costCenters: CostCenter[];
+  supabaseToken: string;
   onClose: () => void;
   onSubmitted: (displayId: string) => void;
 }) {
@@ -118,7 +120,7 @@ export function NewRequestModal({
     }
 
     setSending(true);
-    const { data, error: rpcError } = await supabaseBrowser().rpc("submit_purchase_request", {
+    const { data, error: rpcError } = await supabaseBrowser(supabaseToken).rpc("submit_purchase_request", {
       p_payload: payload,
     });
     setSending(false);

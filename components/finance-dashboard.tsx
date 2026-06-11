@@ -11,9 +11,11 @@ import type { PurchaseRequest } from "@/lib/types";
 export function FinanceDashboard({
   email,
   canMarkPaid,
+  supabaseToken,
 }: {
   email: string;
   canMarkPaid: boolean;
+  supabaseToken: string;
 }) {
   const [requests, setRequests] = useState<PurchaseRequest[] | null>(null);
   const [openRequest, setOpenRequest] = useState<PurchaseRequest | null>(null);
@@ -25,13 +27,13 @@ export function FinanceDashboard({
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const { data } = await supabaseBrowser()
+    const { data } = await supabaseBrowser(supabaseToken)
       .from("purchase_requests")
       .select("*, cost_centers(code, name, department)")
       .order("created_at", { ascending: false })
       .limit(1000);
     setRequests((data as unknown as PurchaseRequest[]) ?? []);
-  }, []);
+  }, [supabaseToken]);
 
   useEffect(() => {
     void load();
@@ -76,7 +78,7 @@ export function FinanceDashboard({
     );
     if (ref === null) return;
     setBusyId(r.id);
-    const { error } = await supabaseBrowser().rpc("mark_purchase_request_paid", {
+    const { error } = await supabaseBrowser(supabaseToken).rpc("mark_purchase_request_paid", {
       p_request_id: r.id,
       p_payment_reference: ref.trim() || null,
     });
@@ -270,6 +272,7 @@ export function FinanceDashboard({
         <RequestDrawer
           request={openRequest}
           viewerEmail={email}
+          supabaseToken={supabaseToken}
           canDecide={false}
           onClose={() => setOpenRequest(null)}
           onChanged={(msg) => {

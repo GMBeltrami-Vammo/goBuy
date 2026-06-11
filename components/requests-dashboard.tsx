@@ -12,9 +12,11 @@ import type { CostCenter, PurchaseRequest } from "@/lib/types";
 export function RequestsDashboard({
   email,
   firstName,
+  supabaseToken,
 }: {
   email: string;
   firstName: string;
+  supabaseToken: string;
 }) {
   const [requests, setRequests] = useState<PurchaseRequest[] | null>(null);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
@@ -23,7 +25,7 @@ export function RequestsDashboard({
   const [toast, setToast] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const supabase = supabaseBrowser();
+    const supabase = supabaseBrowser(supabaseToken);
     const [reqRes, ccRes] = await Promise.all([
       supabase
         .from("purchase_requests")
@@ -39,7 +41,7 @@ export function RequestsDashboard({
     ]);
     setRequests((reqRes.data as unknown as PurchaseRequest[]) ?? []);
     setCostCenters((ccRes.data as unknown as CostCenter[]) ?? []);
-  }, [email]);
+  }, [email, supabaseToken]);
 
   useEffect(() => {
     void load();
@@ -165,6 +167,7 @@ export function RequestsDashboard({
       {showNew && (
         <NewRequestModal
           costCenters={costCenters}
+          supabaseToken={supabaseToken}
           onClose={() => setShowNew(false)}
           onSubmitted={(displayId) => {
             setShowNew(false);
@@ -178,6 +181,7 @@ export function RequestsDashboard({
         <RequestDrawer
           request={openRequest}
           viewerEmail={email}
+          supabaseToken={supabaseToken}
           canDecide={false}
           onClose={() => setOpenRequest(null)}
           onChanged={(msg) => {

@@ -1,16 +1,13 @@
 import { redirect } from "next/navigation";
 
+import { signOut } from "@/auth";
 import { NavTabs } from "@/components/nav-tabs";
-import { SignOutButton } from "@/components/sign-out-button";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { ensureProfile, getSessionContext } from "@/lib/auth";
+import { getSessionContext } from "@/lib/auth";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const ctx = await getSessionContext();
   if (!ctx) redirect("/login");
-
-  // Best-effort: keeps finance.user_profiles in sync on every visit.
-  await ensureProfile(ctx);
 
   const canFinance = ctx.roles.includes("finance") || ctx.roles.includes("admin");
   const canFiscal = ctx.roles.includes("fiscal");
@@ -45,7 +42,34 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <span className="hidden max-w-[140px] truncate text-xs font-medium sm:block">
               {ctx.fullName}
             </span>
-            <SignOutButton />
+            <form
+              action={async () => {
+                "use server";
+                await signOut({ redirectTo: "/login" });
+              }}
+            >
+              <button
+                type="submit"
+                title="Sair"
+                aria-label="Sair"
+                className="text-[var(--faint)] transition hover:text-[var(--rejected)]"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+              </button>
+            </form>
           </div>
         </div>
       </header>

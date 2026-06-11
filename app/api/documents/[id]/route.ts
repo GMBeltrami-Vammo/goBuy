@@ -1,8 +1,10 @@
+import type { Session } from "next-auth";
 import { NextResponse } from "next/server";
 
+import { auth } from "@/auth";
 import { isVammoEmail } from "@/lib/auth";
 import { DOCUMENTS_BUCKET, supabaseAdmin } from "@/lib/supabase/admin";
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseBrowser } from "@/lib/supabase/client";
 
 export const runtime = "nodejs";
 
@@ -17,16 +19,13 @@ export async function GET(
     return NextResponse.json({ error: "Identificador inválido." }, { status: 400 });
   }
 
-  const supabase = await supabaseServer();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user || !isVammoEmail(user.email)) {
+  const session = (await auth()) as (Session & { supabaseToken?: string }) | null;
+  if (!session?.user?.email || !isVammoEmail(session.user.email)) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
   }
 
-  // RLS decides visibility: the row only comes back if the caller may see
-  // the parent request (owner, head of the center, finance/fiscal/admin).
+  // RLS decides visibility via the user's Supabase token.
+  const supabase = supabaseBrowser(session.supabaseToken ?? "");
   const { data: doc } = await supabase
     .from("request_documents")
     .select("storage_path")

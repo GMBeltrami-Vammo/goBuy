@@ -11,5 +11,11 @@ export default async function FinancePage() {
   const canFiscal = ctx.roles.includes("fiscal");
   if (!canFinance && !canFiscal) redirect("/");
 
-  return <FinanceDashboard email={ctx.email} canMarkPaid={canFinance} />;
+  return (
+    <FinanceDashboard
+      email={ctx.email}
+      canMarkPaid={canFinance}
+      supabaseToken={ctx.supabaseToken}
+    />
+  );
 }

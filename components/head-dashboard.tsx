@@ -20,9 +20,11 @@ type SortKey = "value" | "date" | "department";
 export function HeadDashboard({
   email,
   centerIds,
+  supabaseToken,
 }: {
   email: string;
   centerIds: number[];
+  supabaseToken: string;
 }) {
   const [centers, setCenters] = useState<CostCenter[]>([]);
   const [budgets, setBudgets] = useState<CostCenterBudget[]>([]);
@@ -37,7 +39,7 @@ export function HeadDashboard({
   }, []);
 
   const load = useCallback(async () => {
-    const supabase = supabaseBrowser();
+    const supabase = supabaseBrowser(supabaseToken);
     const [ccRes, budgetRes, reqRes] = await Promise.all([
       supabase.from("cost_centers").select("id, code, name, department, active").in("id", centerIds),
       supabase
@@ -55,7 +57,7 @@ export function HeadDashboard({
     setCenters((ccRes.data as unknown as CostCenter[]) ?? []);
     setBudgets((budgetRes.data as unknown as CostCenterBudget[]) ?? []);
     setRequests((reqRes.data as unknown as PurchaseRequest[]) ?? []);
-  }, [centerIds, monthStart]);
+  }, [centerIds, monthStart, supabaseToken]);
 
   useEffect(() => {
     void load();
@@ -278,6 +280,7 @@ export function HeadDashboard({
         <RequestDrawer
           request={openRequest}
           viewerEmail={email}
+          supabaseToken={supabaseToken}
           canDecide={openRequest.status === "pending"}
           onClose={() => setOpenRequest(null)}
           onChanged={(msg) => {

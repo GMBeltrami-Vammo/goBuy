@@ -7,5 +7,11 @@ export default async function HomePage() {
   const ctx = await getSessionContext();
   if (!ctx) redirect("/login");
 
-  return <RequestsDashboard email={ctx.email} firstName={ctx.fullName.split(" ")[0]} />;
+  return (
+    <RequestsDashboard
+      email={ctx.email}
+      firstName={ctx.fullName.split(" ")[0]}
+      supabaseToken={ctx.supabaseToken}
+    />
+  );
 }

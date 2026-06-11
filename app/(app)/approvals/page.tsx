@@ -8,5 +8,11 @@ export default async function ApprovalsPage() {
   if (!ctx) redirect("/login");
   if (!ctx.isHead) redirect("/");
 
-  return <HeadDashboard email={ctx.email} centerIds={ctx.headCenterIds} />;
+  return (
+    <HeadDashboard
+      email={ctx.email}
+      centerIds={ctx.headCenterIds}
+      supabaseToken={ctx.supabaseToken}
+    />
+  );
 }

@@ -31,12 +31,14 @@ const UPLOAD_DOC_TYPES: DocumentType[] = [
 export function RequestDrawer({
   request,
   viewerEmail,
+  supabaseToken,
   canDecide,
   onClose,
   onChanged,
 }: {
   request: PurchaseRequest;
   viewerEmail: string;
+  supabaseToken: string;
   /** true when the viewer can approve/reject (head context). */
   canDecide: boolean;
   onClose: () => void;
@@ -58,7 +60,7 @@ export function RequestDrawer({
   const canUpload = request.status !== "cancelled" && request.status !== "rejected";
 
   const loadDetails = useCallback(async () => {
-    const supabase = supabaseBrowser();
+    const supabase = supabaseBrowser(supabaseToken);
     const [itemsRes, eventsRes, docsRes] = await Promise.all([
       supabase.from("request_items").select("*").eq("request_id", request.id).order("position"),
       supabase.from("request_events").select("*").eq("request_id", request.id).order("id"),
@@ -72,7 +74,7 @@ export function RequestDrawer({
     setEvents((eventsRes.data as unknown as RequestEvent[]) ?? []);
     setDocuments((docsRes.data as unknown as RequestDocument[]) ?? []);
     setLoading(false);
-  }, [request.id]);
+  }, [request.id, supabaseToken]);
 
   useEffect(() => {
     void loadDetails();
@@ -96,13 +98,13 @@ export function RequestDrawer({
   const cancel = () =>
     window.confirm(`Cancelar a solicitação ${request.display_id}?`) &&
     act(
-      () => supabaseBrowser().rpc("cancel_purchase_request", { p_request_id: request.id }),
+      () => supabaseBrowser(supabaseToken).rpc("cancel_purchase_request", { p_request_id: request.id }),
       `${request.display_id} cancelada.`,
     );
 
   const approve = () =>
     act(
-      () => supabaseBrowser().rpc("approve_purchase_request", { p_request_id: request.id }),
+      () => supabaseBrowser(supabaseToken).rpc("approve_purchase_request", { p_request_id: request.id }),
       `${request.display_id} aprovada.`,
     );
 
@@ -113,7 +115,7 @@ export function RequestDrawer({
     }
     return act(
       () =>
-        supabaseBrowser().rpc("reject_purchase_request", {
+        supabaseBrowser(supabaseToken).rpc("reject_purchase_request", {
           p_request_id: request.id,
           p_reason: rejectReason.trim(),
         }),

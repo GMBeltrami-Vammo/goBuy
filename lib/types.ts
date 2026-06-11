@@ -87,11 +87,11 @@ export interface RequestEvent {
 }
 
 export interface SessionContext {
-  userId: string;
   email: string;
   fullName: string;
   avatarUrl: string | null;
   isHead: boolean;
   headCenterIds: number[];
   roles: AppRole[];
+  supabaseToken: string;
 }
