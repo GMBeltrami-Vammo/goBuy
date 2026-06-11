@@ -11,6 +11,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const canFinance = ctx.roles.includes("finance") || ctx.roles.includes("admin");
   const canFiscal = ctx.roles.includes("fiscal");
+  const isAdmin = ctx.email.toLowerCase() === "gabriel.beltrami@vammo.com";
 
   return (
     <div className="mx-auto flex min-h-[calc(100vh-3px)] w-full max-w-5xl flex-col px-5 sm:px-8">
@@ -74,7 +75,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       </header>
 
-      <NavTabs isHead={ctx.isHead} canFinance={canFinance} canFiscal={canFiscal} />
+      <NavTabs isHead={ctx.isHead} canFinance={canFinance} canFiscal={canFiscal} isAdmin={isAdmin} />
 
       <main className="flex-1 pb-20 pt-8">{children}</main>
 

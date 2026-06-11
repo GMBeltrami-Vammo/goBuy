@@ -7,10 +7,12 @@ export function NavTabs({
   isHead,
   canFinance,
   canFiscal,
+  isAdmin,
 }: {
   isHead: boolean;
   canFinance: boolean;
   canFiscal: boolean;
+  isAdmin: boolean;
 }) {
   const pathname = usePathname();
 
@@ -18,6 +20,7 @@ export function NavTabs({
     { href: "/", label: "Minhas solicitações" },
     ...(isHead ? [{ href: "/approvals", label: "Aprovações" }] : []),
     ...(canFinance || canFiscal ? [{ href: "/finance", label: "Financeiro" }] : []),
+    ...(isAdmin ? [{ href: "/admin", label: "Admin" }] : []),
   ];
 
   return (
