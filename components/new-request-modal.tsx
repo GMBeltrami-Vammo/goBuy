@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 
 import { formatBRL } from "@/lib/format";
-import { supabaseBrowser } from "@/lib/supabase/client";
 import type { CostCenter, RequestType } from "@/lib/types";
 
 interface ItemDraft {
@@ -19,12 +18,10 @@ const UNITS = ["un", "cx", "kg", "par", "m", "L", "h"];
 
 export function NewRequestModal({
   costCenters,
-  supabaseToken,
   onClose,
   onSubmitted,
 }: {
   costCenters: CostCenter[];
-  supabaseToken: string;
   onClose: () => void;
   onSubmitted: (displayId: string) => void;
 }) {
@@ -120,16 +117,28 @@ export function NewRequestModal({
     }
 
     setSending(true);
-    const { data, error: rpcError } = await supabaseBrowser(supabaseToken).rpc("submit_purchase_request", {
-      p_payload: payload,
-    });
-    setSending(false);
-
-    if (rpcError) {
-      setError(rpcError.message);
+    let res: Response;
+    try {
+      res = await fetch("/api/requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      setSending(false);
+      setError("Erro de rede. Verifique sua conexão e tente novamente.");
       return;
     }
-    onSubmitted((data as { display_id: string }).display_id);
+    setSending(false);
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as { error?: string };
+      setError(body.error ?? "Erro ao enviar solicitação.");
+      return;
+    }
+
+    const data = await res.json() as { display_id: string };
+    onSubmitted(data.display_id);
   };
 
   return (

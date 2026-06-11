@@ -160,7 +160,6 @@ export function RequestsDashboard({
       {showNew && (
         <NewRequestModal
           costCenters={costCenters}
-          supabaseToken={supabaseToken}
           onClose={() => setShowNew(false)}
           onSubmitted={(displayId) => {
             setShowNew(false);
