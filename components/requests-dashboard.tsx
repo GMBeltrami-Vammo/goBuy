@@ -13,34 +13,27 @@ export function RequestsDashboard({
   email,
   firstName,
   supabaseToken,
+  initialCostCenters,
 }: {
   email: string;
   firstName: string;
   supabaseToken: string;
+  initialCostCenters: CostCenter[];
 }) {
   const [requests, setRequests] = useState<PurchaseRequest[] | null>(null);
-  const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
+  const [costCenters] = useState<CostCenter[]>(initialCostCenters);
   const [openRequest, setOpenRequest] = useState<PurchaseRequest | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const supabase = supabaseBrowser(supabaseToken);
-    const [reqRes, ccRes] = await Promise.all([
-      supabase
-        .from("purchase_requests")
-        .select("*, cost_centers(code, name, department)")
-        .eq("requester_email", email)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("cost_centers")
-        .select("id, code, name, department, active")
-        .eq("active", true)
-        .order("department")
-        .order("code"),
-    ]);
+    const reqRes = await supabase
+      .from("purchase_requests")
+      .select("*, cost_centers(code, name, department)")
+      .eq("requester_email", email)
+      .order("created_at", { ascending: false });
     setRequests((reqRes.data as unknown as PurchaseRequest[]) ?? []);
-    setCostCenters((ccRes.data as unknown as CostCenter[]) ?? []);
   }, [email, supabaseToken]);
 
   useEffect(() => {
