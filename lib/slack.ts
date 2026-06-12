@@ -4,14 +4,31 @@ export const SLACK_API = "https://slack.com/api";
 const APP_URL = "https://gobuy-gray.vercel.app";
 
 // ─── Test-mode routing ────────────────────────────────────────────────────────
-// All messages go to gabriel.beltrami@vammo.com's DM with the bot.
-// Replace with a per-user lookup (email → DM channel) when going live.
-export const TEST_DM_CHANNEL = "D0AQE33791A";
+// All messages go to gabriel.beltrami@vammo.com's DM with THIS bot.
+// A DM channel id is per-(bot,user): we can't hardcode one copied from another
+// app's DM. Resolve it at runtime via conversations.open(users: <userId>).
+// Replace with a per-user lookup (email → user id) when going live.
+const TEST_RECIPIENT_USER_ID = "U0AQE32LDNY";
 
 // Slack user-id → email mapping (test mode only).
 export const SLACK_USER_EMAIL: Record<string, string> = {
   U0AQE32LDNY: "gabriel.beltrami@vammo.com",
 };
+
+// The bot's DM channel with a given user is stable, so memoize it across
+// requests to avoid an extra conversations.open call per notification.
+const dmChannelCache = new Map<string, string>();
+
+/** Resolve (and cache) the DM channel id between the bot and a Slack user. */
+export async function resolveDmChannel(userId: string): Promise<string> {
+  const cached = dmChannelCache.get(userId);
+  if (cached) return cached;
+  const res = await slackPost("conversations.open", { users: userId });
+  const channel = (res.channel as { id?: string } | undefined)?.id;
+  if (!channel) throw new Error("conversations.open returned no channel id");
+  dmChannelCache.set(userId, channel);
+  return channel;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface HeadNotification {
@@ -146,7 +163,7 @@ export async function notifyHead(req: HeadNotification): Promise<void> {
 
   try {
     await slackPost("chat.postMessage", {
-      channel: TEST_DM_CHANNEL,
+      channel: await resolveDmChannel(TEST_RECIPIENT_USER_ID),
       text: `Nova solicitação ${req.displayId} — ${req.supplierName} · ${brl(req.totalAmount)}`,
       blocks,
     });
@@ -211,7 +228,7 @@ export async function notifyRequester(req: RequesterNotification): Promise<void>
   try {
     const status = approved ? "aprovada" : "recusada";
     await slackPost("chat.postMessage", {
-      channel: TEST_DM_CHANNEL,
+      channel: await resolveDmChannel(TEST_RECIPIENT_USER_ID),
       text: `Solicitação ${req.displayId} ${status} por ${req.deciderEmail}`,
       blocks,
     });
