@@ -5,8 +5,9 @@ export default auth((req) => {
   const isLoggedIn = !!req.auth?.user;
   const { pathname } = req.nextUrl;
 
-  // Auth.js API routes and login page are always public.
-  if (pathname === "/login" || pathname.startsWith("/api/auth")) {
+  // Auth.js API routes, login page, and Slack webhook are always public.
+  // The interact endpoint authenticates requests itself via HMAC signature.
+  if (pathname === "/login" || pathname.startsWith("/api/auth") || pathname === "/api/slack/interact") {
     if (isLoggedIn && pathname === "/login") {
       return NextResponse.redirect(new URL("/", req.nextUrl.origin));
     }
