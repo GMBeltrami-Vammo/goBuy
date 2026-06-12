@@ -50,7 +50,6 @@ export function RequestDrawer({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [rejecting, setRejecting] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [docType, setDocType] = useState<DocumentType>("nota_fiscal");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -102,24 +101,28 @@ export function RequestDrawer({
       `${request.display_id} cancelada.`,
     );
 
-  const approve = () =>
-    act(
-      () => supabaseBrowser(supabaseToken).rpc("approve_purchase_request", { p_request_id: request.id }),
-      `${request.display_id} aprovada.`,
-    );
-
-  const reject = () => {
-    if (!rejectReason.trim()) {
+  const decide = async (action: "approve" | "reject") => {
+    if (action === "reject" && !rejectReason.trim()) {
       setError("Informe o motivo da recusa.");
       return;
     }
-    return act(
-      () =>
-        supabaseBrowser(supabaseToken).rpc("reject_purchase_request", {
-          p_request_id: request.id,
-          p_reason: rejectReason.trim(),
-        }),
-      `${request.display_id} recusada.`,
+    setBusy(true);
+    setError(null);
+    const res = await fetch(`/api/requests/${request.id}/decide`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, reason: rejectReason.trim() || undefined }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      const b = await res.json().catch(() => ({})) as { error?: string };
+      setError(b.error ?? "Erro ao processar decisão.");
+      return;
+    }
+    onChanged(
+      action === "approve"
+        ? `${request.display_id} aprovada.`
+        : `${request.display_id} recusada.`,
     );
   };
 
@@ -333,68 +336,50 @@ export function RequestDrawer({
               {error}
             </p>
           )}
-
-          {rejecting && (
-            <div className="space-y-2">
-              <textarea
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="Motivo da recusa (obrigatório)"
-                className="input min-h-16 resize-y"
-                maxLength={2000}
-              />
-            </div>
-          )}
         </div>
 
         {/* Actions */}
-        {(canCancel || (canDecide && request.status === "pending")) && (
-          <div className="sticky bottom-0 flex gap-2 border-t border-[var(--line)] bg-[var(--surface)] px-6 py-4">
-            {canDecide && request.status === "pending" && !rejecting && (
-              <>
-                <button
-                  onClick={approve}
-                  disabled={busy}
-                  className="flex-1 rounded-lg bg-[var(--approved)] px-4 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
-                >
-                  Aprovar
-                </button>
-                <button
-                  onClick={() => setRejecting(true)}
-                  disabled={busy}
-                  className="flex-1 rounded-lg border border-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-[var(--rejected)] transition hover:bg-[var(--rejected-soft)] disabled:opacity-60"
-                >
-                  Recusar
-                </button>
-              </>
-            )}
-            {canDecide && request.status === "pending" && rejecting && (
-              <>
-                <button
-                  onClick={reject}
-                  disabled={busy}
-                  className="flex-1 rounded-lg bg-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
-                >
-                  Confirmar recusa
-                </button>
-                <button
-                  onClick={() => setRejecting(false)}
-                  disabled={busy}
-                  className="rounded-lg border border-[var(--line-strong)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--surface-2)]"
-                >
-                  Voltar
-                </button>
-              </>
-            )}
-            {canCancel && !canDecide && (
+        {canDecide && request.status === "pending" && (
+          <div className="sticky bottom-0 space-y-3 border-t border-[var(--line)] bg-[var(--surface)] px-6 py-4">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-[var(--muted)]">
+                Motivo da recusa
+              </label>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Obrigatório ao recusar…"
+                className="input min-h-[4rem] resize-y text-sm"
+                maxLength={2000}
+              />
+            </div>
+            <div className="flex gap-2">
               <button
-                onClick={cancel}
+                onClick={() => void decide("approve")}
                 disabled={busy}
-                className="flex-1 rounded-lg border border-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-[var(--rejected)] transition hover:bg-[var(--rejected-soft)] disabled:opacity-60"
+                className="flex-1 rounded-lg bg-[var(--approved)] px-4 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
               >
-                Cancelar solicitação
+                Aprovar
               </button>
-            )}
+              <button
+                onClick={() => void decide("reject")}
+                disabled={busy}
+                className="flex-1 rounded-lg bg-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
+              >
+                Recusar
+              </button>
+            </div>
+          </div>
+        )}
+        {canCancel && !canDecide && (
+          <div className="sticky bottom-0 border-t border-[var(--line)] bg-[var(--surface)] px-6 py-4">
+            <button
+              onClick={cancel}
+              disabled={busy}
+              className="w-full rounded-lg border border-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-[var(--rejected)] transition hover:bg-[var(--rejected-soft)] disabled:opacity-60"
+            >
+              Cancelar solicitação
+            </button>
           </div>
         )}
       </aside>
