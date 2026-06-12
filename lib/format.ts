@@ -23,6 +23,14 @@ export const STATUS_LABEL: Record<string, string> = {
   paid: "Paga",
 };
 
+// Compact labels for the inline status badge (the full labels overflow the
+// tight dashboard row columns). Filters/dropdowns keep STATUS_LABEL.
+export const STATUS_BADGE_LABEL: Record<string, string> = {
+  ...STATUS_LABEL,
+  awaiting_finance: "Ag. financeiro",
+  awaiting_payment: "Ag. pagamento",
+};
+
 export const TYPE_LABEL: Record<string, string> = {
   products: "Produtos",
   service: "Serviço",

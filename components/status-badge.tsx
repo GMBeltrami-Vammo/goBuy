@@ -1,4 +1,4 @@
-import { STATUS_LABEL, TYPE_LABEL } from "@/lib/format";
+import { STATUS_BADGE_LABEL, TYPE_LABEL } from "@/lib/format";
 import type { RequestStatus, RequestType } from "@/lib/types";
 
 const STATUS_VAR: Record<RequestStatus, string> = {
@@ -19,7 +19,7 @@ export function StatusBadge({ status }: { status: RequestStatus }) {
       style={{ color: `var(--${v})`, background: `var(--${v}-soft)` }}
     >
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: `var(--${v})` }} />
-      {STATUS_LABEL[status]}
+      {STATUS_BADGE_LABEL[status]}
     </span>
   );
 }

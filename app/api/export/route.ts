@@ -29,7 +29,6 @@ const HEADERS = [
   "Boleto",
   "",
   "Observação",
-  "Empresa",
   "Moeda",
 ];
 
@@ -38,8 +37,6 @@ interface ExportRow {
   display_id: string;
   request_type: string;
   supplier_name: string;
-  contracted_company: string | null;
-  company: string | null;
   total_amount: number;
   currency: string;
   justification: string | null;
@@ -121,7 +118,7 @@ export async function GET(request: Request) {
   const { data, error } = await admin
     .from("purchase_requests")
     .select(
-      `id, display_id, request_type, supplier_name, contracted_company, company,
+      `id, display_id, request_type, supplier_name,
        total_amount, currency, justification, requester_email, nf_number,
        payment_type, expected_payment_date, finance_submitted_at,
        request_allocations(percentage, cost_centers(code, name, department))`,
@@ -202,7 +199,7 @@ export async function GET(request: Request) {
       sheet.addRow([
         row.finance_submitted_at ? formatTimestampBRT(row.finance_submitted_at) : "",
         row.payment_type ?? "",
-        row.contracted_company ?? row.supplier_name,
+        row.supplier_name,
         formatValor(Number(row.total_amount)),
         nfColumn(row),
         row.justification ?? "",
@@ -216,14 +213,16 @@ export async function GET(request: Request) {
         boletoLink,
         null, // (coluna em branco)
         null, // Observação
-        row.company ?? "",
         currencyLabel(row.currency || "BRL"),
       ]);
     }
 
     sheet.columns.forEach((col, i) => {
-      col.width = [20, 22, 30, 14, 16, 40, 16, 40, 10, 14, 18, 50, 30, 50, 6, 14, 16, 22][i] ?? 14;
+      col.width = [20, 22, 30, 14, 16, 40, 16, 40, 10, 14, 18, 50, 30, 50, 6, 14, 22][i] ?? 14;
     });
+    // Departamento (col 8) holds one rateio line per allocation — wrap so the
+    // \n separators render as multiple lines within the single row.
+    sheet.getColumn(8).alignment = { wrapText: true, vertical: "top" };
   }
 
   const buffer = await workbook.xlsx.writeBuffer();

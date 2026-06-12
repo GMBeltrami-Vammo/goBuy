@@ -53,7 +53,8 @@ export async function POST(
   if (!body.payment_method || !PAYMENT_METHODS.has(body.payment_method)) {
     return NextResponse.json({ error: "Forma de pagamento inválida." }, { status: 400 });
   }
-  if (!body.payment_due_date || !ISO_DATE_RE.test(body.payment_due_date)) {
+  // Due date is optional; validate the format only when provided.
+  if (body.payment_due_date && !ISO_DATE_RE.test(body.payment_due_date)) {
     return NextResponse.json({ error: "Data de vencimento inválida." }, { status: 400 });
   }
 

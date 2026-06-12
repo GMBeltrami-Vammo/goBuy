@@ -164,10 +164,6 @@ export function RequestDrawer({
       setError("Informe o número da nota fiscal.");
       return;
     }
-    if (!dueDate) {
-      setError("Informe a data de vencimento do pagamento.");
-      return;
-    }
     if (request.request_type !== "advance" && !hasDoc("nota_fiscal")) {
       setError("Anexe a nota fiscal antes de enviar ao financeiro.");
       return;
@@ -304,10 +300,6 @@ export function RequestDrawer({
             <Meta label="Valor" value={fmt(Number(request.total_amount))} strong />
             <Meta label="Criada em" value={formatDate(request.created_at)} />
             {currency !== "BRL" && <Meta label="Moeda" value={currency} />}
-            {request.contracted_company && (
-              <Meta label="Empresa contratada" value={request.contracted_company} />
-            )}
-            {request.company && <Meta label="Empresa" value={request.company} />}
             {request.supplier_document && (
               <Meta
                 label={request.request_type === "advance" ? "CPF" : "CNPJ"}
@@ -499,7 +491,7 @@ export function RequestDrawer({
                 )}
                 <div>
                   <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                    Data de vencimento do pagamento *
+                    Data de vencimento do pagamento (opcional)
                   </label>
                   <input
                     type="date"

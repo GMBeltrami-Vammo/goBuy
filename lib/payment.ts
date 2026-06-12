@@ -20,11 +20,16 @@ export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
 };
 
 // ─── Currencies (default BRL) ─────────────────────────────────────────────────
+// Keep the codes in sync with the currency CHECK in finance.submit_purchase_request.
 export const CURRENCIES = [
-  { code: "BRL", label: "R$ (REAL)" },
+  { code: "BRL", label: "R$ (Real)" },
   { code: "USD", label: "USD (Dólar Americano)" },
   { code: "EUR", label: "EUR (Euro)" },
   { code: "GBP", label: "GBP (Libra Esterlina)" },
+  { code: "CNY", label: "CNY (Yuan / Renminbi)" },
+  { code: "JPY", label: "JPY (Iene)" },
+  { code: "MXN", label: "MXN (Peso Mexicano)" },
+  { code: "ARS", label: "ARS (Peso Argentino)" },
 ] as const;
 
 export const currencyLabel = (code: string): string =>

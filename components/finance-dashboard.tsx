@@ -329,7 +329,7 @@ export function FinanceDashboard({
               <li key={r.id}>
                 <button
                   onClick={() => setOpenRequest(r)}
-                  className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-1 border-b border-[var(--line)] px-5 py-3 text-left transition last:border-b-0 hover:bg-[var(--surface-2)] sm:grid-cols-[90px_1fr_130px_auto_110px_90px_110px]"
+                  className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-1 border-b border-[var(--line)] px-5 py-3 text-left transition last:border-b-0 hover:bg-[var(--surface-2)] sm:grid-cols-[90px_1fr_130px_auto_110px_90px_132px]"
                 >
                   <span className="v-tabular text-xs font-semibold text-[var(--accent)]">
                     {r.display_id}

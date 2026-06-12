@@ -49,8 +49,6 @@ export function NewRequestModal({
   const [advanceUseDate, setAdvanceUseDate] = useState("");
   const [advanceDeadline, setAdvanceDeadline] = useState("");
   const [currency, setCurrency] = useState("BRL");
-  const [contractedCompany, setContractedCompany] = useState("");
-  const [company, setCompany] = useState("Vammo");
   const [splitDepts, setSplitDepts] = useState(false);
   const [allocations, setAllocations] = useState<AllocationDraft[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -93,10 +91,13 @@ export function NewRequestModal({
   const setItem = (i: number, patch: Partial<ItemDraft>) =>
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
 
-  const allocTotal = useMemo(
-    () => allocations.reduce((s, a) => s + (parseFloat(a.percentage) || 0), 0),
+  // The last allocation row always fills the remainder so the split sums to
+  // exactly 100% — the user only types the earlier rows.
+  const othersSum = useMemo(
+    () => allocations.slice(0, -1).reduce((s, a) => s + (parseFloat(a.percentage) || 0), 0),
     [allocations],
   );
+  const lastPct = Math.round((100 - othersSum) * 100) / 100;
 
   const submit = async () => {
     setError(null);
@@ -106,10 +107,15 @@ export function NewRequestModal({
       return setError("Adicione ao menos um item.");
     if (total <= 0) return setError("O valor total deve ser maior que zero.");
     if (splitDepts) {
-      const valid = allocations.filter((a) => a.ccId && (parseFloat(a.percentage) || 0) > 0);
-      if (valid.length < 2) return setError("Rateio exige ao menos dois departamentos.");
-      if (Math.abs(allocTotal - 100) > 0.01)
-        return setError(`O rateio deve somar 100% (atual: ${allocTotal.toFixed(2).replace(".", ",")}%).`);
+      if (allocations.length < 2) return setError("Rateio exige ao menos dois departamentos.");
+      if (allocations.some((a) => !a.ccId))
+        return setError("Selecione o centro de custo em cada linha do rateio.");
+      if (allocations.slice(0, -1).some((a) => (parseFloat(a.percentage) || 0) <= 0))
+        return setError("Cada departamento do rateio precisa de um percentual maior que zero.");
+      if (lastPct <= 0)
+        return setError(
+          `Os demais departamentos já somam ${othersSum.toFixed(2).replace(".", ",")}%. Reduza para liberar o último.`,
+        );
     }
 
     const payload: Record<string, unknown> = {
@@ -120,13 +126,13 @@ export function NewRequestModal({
       justification: justification.trim() || null,
       notes: notes.trim() || null,
       currency,
-      contracted_company: contractedCompany.trim() || null,
-      company: company.trim() || null,
     };
     if (splitDepts) {
-      payload.allocations = allocations
-        .filter((a) => a.ccId && (parseFloat(a.percentage) || 0) > 0)
-        .map((a) => ({ cost_center_id: Number(a.ccId), percentage: parseFloat(a.percentage) }));
+      const last = allocations.length - 1;
+      payload.allocations = allocations.map((a, i) => ({
+        cost_center_id: Number(a.ccId),
+        percentage: i === last ? lastPct : parseFloat(a.percentage),
+      }));
     }
 
     if (type === "products") {
@@ -263,24 +269,6 @@ export function NewRequestModal({
                 className="input bg-[var(--surface-2)] text-[var(--muted)]"
               />
             </Field>
-            <Field label="Empresa contratada">
-              <input
-                value={contractedCompany}
-                onChange={(e) => setContractedCompany(e.target.value)}
-                placeholder="Razão social da contratada (se diferente)"
-                className="input"
-                maxLength={200}
-              />
-            </Field>
-            <Field label="Empresa">
-              <input
-                value={company}
-                onChange={(e) => setCompany(e.target.value)}
-                placeholder="Entidade pagadora"
-                className="input"
-                maxLength={200}
-              />
-            </Field>
             <Field label="Moeda">
               <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="input">
                 {CURRENCIES.map((c) => (
@@ -310,7 +298,7 @@ export function NewRequestModal({
                   if (e.target.checked && allocations.length === 0) {
                     setAllocations([
                       { ccId, percentage: "50" },
-                      { ccId: "", percentage: "50" },
+                      { ccId: "", percentage: "" }, // last = computed remainder
                     ]);
                   }
                 }}
@@ -320,68 +308,94 @@ export function NewRequestModal({
             </label>
             {splitDepts && (
               <div className="mt-3 space-y-2">
-                {allocations.map((a, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <select
-                      value={a.ccId}
-                      onChange={(e) =>
-                        setAllocations((prev) =>
-                          prev.map((x, idx) => (idx === i ? { ...x, ccId: e.target.value } : x)),
-                        )
-                      }
-                      aria-label={`Centro de custo do rateio ${i + 1}`}
-                      className="input flex-1 text-sm"
-                    >
-                      <option value="">Centro de custo…</option>
-                      {grouped.map(([dept, ccs]) => (
-                        <optgroup key={dept} label={dept}>
-                          {ccs.map((cc) => (
-                            <option key={cc.id} value={cc.id}>
-                              {cc.code} — {cc.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
-                    <input
-                      type="number"
-                      min="0.01"
-                      max="100"
-                      step="0.01"
-                      value={a.percentage}
-                      onChange={(e) =>
-                        setAllocations((prev) =>
-                          prev.map((x, idx) => (idx === i ? { ...x, percentage: e.target.value } : x)),
-                        )
-                      }
-                      aria-label={`Percentual do rateio ${i + 1}`}
-                      className="input w-24 text-right text-sm"
-                    />
-                    <span className="text-sm text-[var(--muted)]">%</span>
-                    <button
-                      onClick={() => setAllocations((prev) => prev.filter((_, idx) => idx !== i))}
-                      disabled={allocations.length <= 2}
-                      className="text-[var(--faint)] hover:text-[var(--rejected)] disabled:opacity-30"
-                      aria-label="Remover linha de rateio"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
+                <p className="text-xs text-[var(--faint)]">
+                  O último departamento recebe automaticamente o percentual restante para fechar 100%.
+                </p>
+                {allocations.map((a, i) => {
+                  const isLast = i === allocations.length - 1;
+                  return (
+                    <div key={i} className="flex items-center gap-2">
+                      <select
+                        value={a.ccId}
+                        onChange={(e) =>
+                          setAllocations((prev) =>
+                            prev.map((x, idx) => (idx === i ? { ...x, ccId: e.target.value } : x)),
+                          )
+                        }
+                        aria-label={`Centro de custo do rateio ${i + 1}`}
+                        className="input min-w-0 flex-1 text-sm"
+                      >
+                        <option value="">Centro de custo…</option>
+                        {grouped.map(([dept, ccs]) => (
+                          <optgroup key={dept} label={dept}>
+                            {ccs.map((cc) => (
+                              <option key={cc.id} value={cc.id}>
+                                {cc.code} — {cc.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        min="0.01"
+                        max="100"
+                        step="0.01"
+                        value={isLast ? (lastPct >= 0 ? String(lastPct) : "0") : a.percentage}
+                        readOnly={isLast}
+                        title={isLast ? "Calculado automaticamente (restante para 100%)" : undefined}
+                        onChange={(e) =>
+                          setAllocations((prev) =>
+                            prev.map((x, idx) => (idx === i ? { ...x, percentage: e.target.value } : x)),
+                          )
+                        }
+                        aria-label={`Percentual do rateio ${i + 1}`}
+                        className={`input w-16 shrink-0 text-right text-sm ${
+                          isLast ? "bg-[var(--surface-2)] text-[var(--muted)]" : ""
+                        }`}
+                      />
+                      <span className="shrink-0 text-sm text-[var(--muted)]">%</span>
+                      <button
+                        type="button"
+                        onClick={() => setAllocations((prev) => prev.filter((_, idx) => idx !== i))}
+                        disabled={allocations.length <= 2}
+                        className="shrink-0 text-[var(--faint)] hover:text-[var(--rejected)] disabled:opacity-30"
+                        aria-label="Remover linha de rateio"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  );
+                })}
                 <div className="flex items-center justify-between">
                   <button
-                    onClick={() => setAllocations((prev) => [...prev, { ccId: "", percentage: "" }])}
+                    type="button"
+                    onClick={() =>
+                      // Freeze the current computed remainder into the previously-last
+                      // row, then append a fresh row that becomes the new remainder.
+                      setAllocations((prev) => {
+                        const others = prev
+                          .slice(0, -1)
+                          .reduce((s, x) => s + (parseFloat(x.percentage) || 0), 0);
+                        const remainder = Math.max(0, Math.round((100 - others) * 100) / 100);
+                        const frozen = prev.map((x, idx) =>
+                          idx === prev.length - 1 ? { ...x, percentage: String(remainder) } : x,
+                        );
+                        return [...frozen, { ccId: "", percentage: "" }];
+                      })
+                    }
                     className="text-sm font-semibold text-[var(--accent)] hover:underline"
                   >
                     + Adicionar departamento
                   </button>
                   <p
                     className={`v-tabular text-sm font-semibold ${
-                      Math.abs(allocTotal - 100) > 0.01 ? "text-[var(--rejected)]" : "text-[var(--approved)]"
+                      lastPct <= 0 ? "text-[var(--rejected)]" : "text-[var(--approved)]"
                     }`}
                   >
-                    {Math.abs(allocTotal - 100) > 0.01 ? "⚠ " : "✓ "}
-                    {allocTotal.toFixed(2).replace(".", ",")}% / 100%
+                    {lastPct <= 0
+                      ? `⚠ Excede 100% (${othersSum.toFixed(2).replace(".", ",")}%)`
+                      : `✓ Soma 100% · último ${lastPct.toFixed(2).replace(".", ",")}%`}
                   </p>
                 </div>
               </div>
