@@ -30,7 +30,12 @@ export const CURRENCIES = [
   { code: "JPY", label: "JPY (Iene)" },
   { code: "MXN", label: "MXN (Peso Mexicano)" },
   { code: "ARS", label: "ARS (Peso Argentino)" },
+  { code: "COP", label: "COP (Peso Colombiano)" },
+  { code: "PYG", label: "PYG (Guaraní Paraguaio)" },
 ] as const;
+
+/** Sentinel usado no select do formulário para exibir o campo de código livre. */
+export const CURRENCY_CUSTOM = "custom" as const;
 
 export const currencyLabel = (code: string): string =>
   CURRENCIES.find((c) => c.code === code)?.label ?? code;

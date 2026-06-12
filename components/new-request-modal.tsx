@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { formatBRL } from "@/lib/format";
-import { CURRENCIES, formatAmount } from "@/lib/payment";
+import { CURRENCIES, CURRENCY_CUSTOM, formatAmount } from "@/lib/payment";
 import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
 import type { CostCenter, RequestType } from "@/lib/types";
 
@@ -49,12 +49,22 @@ export function NewRequestModal({
   const [advanceUseDate, setAdvanceUseDate] = useState("");
   const [advanceDeadline, setAdvanceDeadline] = useState("");
   const [currency, setCurrency] = useState("BRL");
+  const [customCurrency, setCustomCurrency] = useState("");
   const [splitDepts, setSplitDepts] = useState(false);
   const [allocations, setAllocations] = useState<AllocationDraft[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
-  const fmt = (n: number) => (currency === "BRL" ? formatBRL(n) : formatAmount(n, currency));
+  const activeCurrency =
+    currency === CURRENCY_CUSTOM ? customCurrency.trim().toUpperCase() : currency;
+  const fmt = (n: number) => {
+    if (!activeCurrency || activeCurrency === "BRL") return formatBRL(n);
+    try {
+      return formatAmount(n, activeCurrency);
+    } catch {
+      return formatBRL(n);
+    }
+  };
 
   const grouped = useMemo(() => {
     const map = new Map<string, CostCenter[]>();
@@ -103,6 +113,8 @@ export function NewRequestModal({
     setError(null);
     if (!supplier.trim()) return setError(isAdvance ? "Informe o beneficiário." : "Informe o fornecedor.");
     if (!ccId) return setError("Selecione o centro de custo.");
+    if (currency === CURRENCY_CUSTOM && !/^[A-Z]{2,10}$/.test(customCurrency.trim().toUpperCase()))
+      return setError("Informe um código de moeda válido (ex: CLP, CHF).");
     if (type === "products" && items.every((i) => !i.description.trim()))
       return setError("Adicione ao menos um item.");
     if (total <= 0) return setError("O valor total deve ser maior que zero.");
@@ -125,7 +137,7 @@ export function NewRequestModal({
       cost_center_id: Number(ccId),
       justification: justification.trim() || null,
       notes: notes.trim() || null,
-      currency,
+      currency: activeCurrency || "BRL",
     };
     if (splitDepts) {
       const last = allocations.length - 1;
@@ -274,7 +286,18 @@ export function NewRequestModal({
                 {CURRENCIES.map((c) => (
                   <option key={c.code} value={c.code}>{c.label}</option>
                 ))}
+                <option value={CURRENCY_CUSTOM}>Outra moeda (digitar código)…</option>
               </select>
+              {currency === CURRENCY_CUSTOM && (
+                <input
+                  value={customCurrency}
+                  onChange={(e) => setCustomCurrency(e.target.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 10))}
+                  placeholder="Ex: CLP, PEN, CHF"
+                  className="input mt-2"
+                  maxLength={10}
+                  autoFocus
+                />
+              )}
             </Field>
             <Field label="Justificativa" full>
               <textarea
@@ -350,8 +373,10 @@ export function NewRequestModal({
                           )
                         }
                         aria-label={`Percentual do rateio ${i + 1}`}
-                        className={`input w-16 shrink-0 text-right text-sm ${
-                          isLast ? "bg-[var(--surface-2)] text-[var(--muted)]" : ""
+                        className={`w-14 shrink-0 rounded-lg border px-2 py-2 text-right text-sm outline-none transition focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--accent-soft)] ${
+                          isLast
+                            ? "border-[var(--line)] bg-[var(--surface-2)] text-[var(--muted)]"
+                            : "border-[var(--line-strong)] bg-[var(--bg)] text-[var(--ink)]"
                         }`}
                       />
                       <span className="shrink-0 text-sm text-[var(--muted)]">%</span>
