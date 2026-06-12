@@ -1,3 +1,4 @@
+import { waitUntil } from "@vercel/functions";
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
@@ -54,29 +55,32 @@ export async function POST(
     return NextResponse.json({ error: rpcResult.error.message }, { status: 500 });
   }
 
-  // Fire-and-forget: notify the requester.
-  void (async () => {
-    try {
-      const { data: req } = await supabaseAdmin()
-        .from("purchase_requests")
-        .select("display_id, supplier_name, total_amount")
-        .eq("id", id)
-        .maybeSingle();
+  // Notify the requester. waitUntil keeps the function alive until the
+  // Slack call finishes (a bare promise is killed when the response returns).
+  waitUntil(
+    (async () => {
+      try {
+        const { data: req } = await supabaseAdmin()
+          .from("purchase_requests")
+          .select("display_id, supplier_name, total_amount")
+          .eq("id", id)
+          .maybeSingle();
 
-      if (req) {
-        await notifyRequester({
-          displayId: req.display_id as string,
-          action: action as "approved" | "rejected",
-          deciderEmail,
-          supplierName: req.supplier_name as string,
-          totalAmount: Number(req.total_amount),
-          reason: reason?.trim() ?? null,
-        });
+        if (req) {
+          await notifyRequester({
+            displayId: req.display_id as string,
+            action: (action === "approve" ? "approved" : "rejected"),
+            deciderEmail,
+            supplierName: req.supplier_name as string,
+            totalAmount: Number(req.total_amount),
+            reason: reason?.trim() ?? null,
+          });
+        }
+      } catch (err) {
+        console.error("[slack notifyRequester] failed:", err);
       }
-    } catch (err) {
-      console.error("[slack notifyRequester] failed:", err);
-    }
-  })();
+    })(),
+  );
 
   return NextResponse.json({ ok: true });
 }

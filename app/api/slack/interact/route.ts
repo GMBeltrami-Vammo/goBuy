@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import { waitUntil } from "@vercel/functions";
 import { NextResponse } from "next/server";
 
 import {
@@ -143,27 +144,30 @@ export async function POST(request: Request) {
     const container = payload.container as { channel_id: string; message_ts: string };
 
     if (action.action_id === "approve_request") {
-      // Process approval in background, respond immediately
-      void (async () => {
-        try {
-          const req = await getRequest(requestId);
-          if (!req || req.status !== "pending") return;
-          if (!(await isHead(actorEmail, req.cost_center_id))) return;
+      // Process approval after responding. waitUntil guarantees the work
+      // runs to completion — a bare promise would be killed at response time.
+      waitUntil(
+        (async () => {
+          try {
+            const req = await getRequest(requestId);
+            if (!req || req.status !== "pending") return;
+            if (!(await isHead(actorEmail, req.cost_center_id))) return;
 
-          await approveRequest(requestId, actorEmail);
-          await updateHeadMessage(container.channel_id, container.message_ts, req.display_id, "approved", actorEmail);
-          await notifyRequester({
-            displayId: req.display_id,
-            action: "approved",
-            deciderEmail: actorEmail,
-            supplierName: req.supplier_name,
-            totalAmount: Number(req.total_amount),
-            reason: null,
-          });
-        } catch (err) {
-          console.error("[slack/interact] approve failed:", err);
-        }
-      })();
+            await approveRequest(requestId, actorEmail);
+            await updateHeadMessage(container.channel_id, container.message_ts, req.display_id, "approved", actorEmail);
+            await notifyRequester({
+              displayId: req.display_id,
+              action: "approved",
+              deciderEmail: actorEmail,
+              supplierName: req.supplier_name,
+              totalAmount: Number(req.total_amount),
+              reason: null,
+            });
+          } catch (err) {
+            console.error("[slack/interact] approve failed:", err);
+          }
+        })(),
+      );
 
       return new NextResponse(null, { status: 200 });
     }
@@ -224,27 +228,29 @@ export async function POST(request: Request) {
       });
     }
 
-    // Process in background, close modal immediately
-    void (async () => {
-      try {
-        const req = await getRequest(meta.requestId);
-        if (!req || req.status !== "pending") return;
-        if (!(await isHead(actorEmail, req.cost_center_id))) return;
+    // Process after closing the modal. waitUntil guarantees completion.
+    waitUntil(
+      (async () => {
+        try {
+          const req = await getRequest(meta.requestId);
+          if (!req || req.status !== "pending") return;
+          if (!(await isHead(actorEmail, req.cost_center_id))) return;
 
-        await rejectRequest(meta.requestId, actorEmail, reason);
-        await updateHeadMessage(meta.channel, meta.messageTsToUpdate, meta.displayId, "rejected", actorEmail, reason);
-        await notifyRequester({
-          displayId: meta.displayId,
-          action: "rejected",
-          deciderEmail: actorEmail,
-          supplierName: req.supplier_name,
-          totalAmount: Number(req.total_amount),
-          reason,
-        });
-      } catch (err) {
-        console.error("[slack/interact] reject modal submit failed:", err);
-      }
-    })();
+          await rejectRequest(meta.requestId, actorEmail, reason);
+          await updateHeadMessage(meta.channel, meta.messageTsToUpdate, meta.displayId, "rejected", actorEmail, reason);
+          await notifyRequester({
+            displayId: meta.displayId,
+            action: "rejected",
+            deciderEmail: actorEmail,
+            supplierName: req.supplier_name,
+            totalAmount: Number(req.total_amount),
+            reason,
+          });
+        } catch (err) {
+          console.error("[slack/interact] reject modal submit failed:", err);
+        }
+      })(),
+    );
 
     // Close the modal
     return NextResponse.json({ response_action: "clear" });

@@ -1,3 +1,4 @@
+import { waitUntil } from "@vercel/functions";
 import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
@@ -46,30 +47,34 @@ export async function POST(request: Request) {
     totalAmount = payload.items.reduce((s, i) => s + (i.quantity ?? 0) * (i.unit_value ?? 0), 0);
   }
 
-  // Fire-and-forget: notify the head with Approve/Reject buttons.
-  void (async () => {
-    try {
-      const { data: cc } = await supabaseAdmin()
-        .from("cost_centers")
-        .select("code, name")
-        .eq("id", payload.cost_center_id ?? 0)
-        .maybeSingle();
+  // Notify the head with Approve/Reject buttons. waitUntil keeps the
+  // serverless function alive until the Slack call finishes — a plain
+  // fire-and-forget promise is killed when the response is returned.
+  waitUntil(
+    (async () => {
+      try {
+        const { data: cc } = await supabaseAdmin()
+          .from("cost_centers")
+          .select("code, name")
+          .eq("id", payload.cost_center_id ?? 0)
+          .maybeSingle();
 
-      await notifyHead({
-        requestId: (data as { id: string }).id,
-        displayId: (data as { display_id: string }).display_id,
-        requesterEmail,
-        supplierName: payload.supplier_name ?? "—",
-        totalAmount,
-        requestType: payload.request_type ?? "products",
-        costCenterCode: cc?.code ?? null,
-        costCenterName: cc?.name ?? null,
-        justification: payload.justification ?? null,
-      });
-    } catch (err) {
-      console.error("[slack notifyHead] failed:", err);
-    }
-  })();
+        await notifyHead({
+          requestId: (data as { id: string }).id,
+          displayId: (data as { display_id: string }).display_id,
+          requesterEmail,
+          supplierName: payload.supplier_name ?? "—",
+          totalAmount,
+          requestType: payload.request_type ?? "products",
+          costCenterCode: cc?.code ?? null,
+          costCenterName: cc?.name ?? null,
+          justification: payload.justification ?? null,
+        });
+      } catch (err) {
+        console.error("[slack notifyHead] failed:", err);
+      }
+    })(),
+  );
 
   return NextResponse.json(data, { status: 201 });
 }
