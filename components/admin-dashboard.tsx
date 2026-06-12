@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { STATUS_LABEL } from "@/lib/format";
+
 type AppRole = "finance" | "fiscal" | "admin";
 
 interface RoleRow {
@@ -54,10 +56,9 @@ const ROLE_LABEL: Record<AppRole, string> = {
   admin: "Admin",
 };
 const ROLE_CHIP: Record<AppRole, string> = {
-  finance:
-    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  finance: "bg-[var(--approved-soft)] text-[var(--approved)]",
   fiscal: "bg-[var(--accent-soft)] text-[var(--accent)]",
-  admin: "bg-orange-100 text-orange-700",
+  admin: "bg-[var(--awaiting-payment-soft)] text-[var(--awaiting-payment)]",
 };
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
@@ -72,7 +73,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--card)]">
+    <div className="overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)]">
       {children}
     </div>
   );
@@ -137,7 +138,7 @@ function Btn({
       onClick={onClick}
       className={
         variant === "primary"
-          ? "rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-40"
+          ? "rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-40"
           : "text-xs text-[var(--faint)] transition hover:text-[var(--rejected)] disabled:opacity-40"
       }
     >
@@ -151,6 +152,7 @@ function Btn({
 export function AdminDashboard() {
   const [data, setData] = useState<AdminData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
   // Search filters
@@ -186,10 +188,17 @@ export function AdminDashboard() {
   };
 
   const reload = useCallback(async () => {
-    const res = await fetch("/api/admin/roles");
-    if (!res.ok) return;
-    setData((await res.json()) as AdminData);
-    setLoading(false);
+    setLoadError(false);
+    try {
+      const res = await fetch("/api/admin/roles");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setData((await res.json()) as AdminData);
+    } catch (err) {
+      console.error("[admin] failed to load:", err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -391,20 +400,23 @@ export function AdminDashboard() {
     }
   };
 
-  const STATUS_PT: Record<string, string> = {
-    pending: "Pendente",
-    approved: "Aprovada",
-    rejected: "Rejeitada",
-    cancelled: "Cancelada",
-    paid: "Paga",
-  };
-
   // ─── Render ──────────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
         <span className="text-sm text-[var(--muted)]">Carregando...</span>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-24">
+        <p className="text-sm text-[var(--rejected)]">Não foi possível carregar os dados administrativos.</p>
+        <Btn variant="primary" onClick={() => { setLoading(true); void reload(); }}>
+          Tentar novamente
+        </Btn>
       </div>
     );
   }
@@ -416,8 +428,10 @@ export function AdminDashboard() {
       {/* Toast */}
       {toast && (
         <div
-          className={`fixed bottom-6 right-6 z-50 max-w-sm rounded-xl px-4 py-3 text-sm font-medium shadow-lg ${
-            toast.ok ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+          className={`fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border px-4 py-3 text-sm font-medium shadow-[var(--shadow)] ${
+            toast.ok
+              ? "border-[var(--approved)] bg-[var(--approved-soft)] text-[var(--approved)]"
+              : "border-[var(--rejected)] bg-[var(--rejected-soft)] text-[var(--rejected)]"
           }`}
         >
           {toast.msg}
@@ -749,8 +763,8 @@ export function AdminDashboard() {
                               <span
                                 className={
                                   row.head_email.endsWith("@vammo.com")
-                                    ? "text-emerald-600"
-                                    : "text-orange-500"
+                                    ? "text-[var(--approved)]"
+                                    : "text-[var(--awaiting-payment)]"
                                 }
                               >
                                 {row.head_email}
@@ -838,7 +852,7 @@ export function AdminDashboard() {
                             "—"
                           )}
                         </td>
-                        <td className="px-4 py-2.5 text-xs">{STATUS_PT[r.status] ?? r.status}</td>
+                        <td className="px-4 py-2.5 text-xs">{STATUS_LABEL[r.status] ?? r.status}</td>
                         <td className="px-4 py-2.5 font-mono text-xs">
                           {new Intl.NumberFormat("pt-BR", {
                             style: "currency",

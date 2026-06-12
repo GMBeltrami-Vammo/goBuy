@@ -2,6 +2,7 @@ import { after, NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { isVammoEmail } from "@/lib/auth";
+import { isSameOrigin } from "@/lib/http";
 import { notifyHead } from "@/lib/slack";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -18,6 +19,10 @@ interface RequestPayload {
 }
 
 export async function POST(request: Request) {
+  if (!isSameOrigin(request)) {
+    return NextResponse.json({ error: "Origem inválida." }, { status: 403 });
+  }
+
   const session = await auth();
   if (!session?.user?.email || !isVammoEmail(session.user.email)) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
@@ -35,7 +40,11 @@ export async function POST(request: Request) {
   const { data, error } = await supabase.rpc("submit_purchase_request", { p_payload: payload });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[submit_purchase_request] rpc failed:", error.message);
+    return NextResponse.json(
+      { error: "Não foi possível enviar a solicitação. Verifique os campos e tente novamente." },
+      { status: 400 },
+    );
   }
 
   // Compute total for Slack (mirrors new-request-modal logic).

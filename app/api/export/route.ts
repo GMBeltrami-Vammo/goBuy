@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import { NextResponse } from "next/server";
 
 import { getSessionContext } from "@/lib/auth";
+import { isSameOriginFetch } from "@/lib/http";
 import { currencyLabel } from "@/lib/payment";
 import { DOCUMENTS_BUCKET, supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -99,7 +100,14 @@ function sheetKey(expected: string | null): string {
   return `${m}-${y}`;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  // This endpoint is only ever called via our own fetch(); requiring a
+  // same-origin fetch blocks cross-site GET navigation (SameSite=Lax would
+  // otherwise still send the session cookie on a top-level cross-site GET).
+  if (!isSameOriginFetch(request)) {
+    return NextResponse.json({ error: "Origem inválida." }, { status: 403 });
+  }
+
   const ctx = await getSessionContext();
   if (!ctx) {
     return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
@@ -147,18 +155,21 @@ export async function GET() {
     docPath.set(`${d.request_id}:${d.doc_type}`, d.storage_path);
   }
 
-  const linkCache = new Map<string, string>();
-  const signedLink = async (path: string | undefined): Promise<string> => {
-    if (!path) return "";
-    const cached = linkCache.get(path);
-    if (cached) return cached;
+  // Sign every distinct document path in ONE batch request rather than two
+  // sequential round-trips per row (which would be ~2N serial calls and risk a
+  // function timeout on large exports).
+  const linkByPath = new Map<string, string>();
+  const allPaths = [...new Set(docPath.values())];
+  if (allPaths.length > 0) {
     const { data: signed } = await admin.storage
       .from(DOCUMENTS_BUCKET)
-      .createSignedUrl(path, SIGNED_URL_TTL);
-    const url = signed?.signedUrl ?? "";
-    linkCache.set(path, url);
-    return url;
-  };
+      .createSignedUrls(allPaths, SIGNED_URL_TTL);
+    for (const s of signed ?? []) {
+      if (s.path && s.signedUrl) linkByPath.set(s.path, s.signedUrl);
+    }
+  }
+  const linkFor = (path: string | undefined): string =>
+    path ? linkByPath.get(path) ?? "" : "";
 
   // Group by expected payment month, chronologically ordered sheets.
   const groups = new Map<string, ExportRow[]>();
@@ -185,8 +196,8 @@ export async function GET() {
     headerRow.font = { bold: true };
 
     for (const row of groups.get(key)!) {
-      const nfLink = await signedLink(docPath.get(`${row.id}:nota_fiscal`));
-      const boletoLink = await signedLink(docPath.get(`${row.id}:boleto`));
+      const nfLink = linkFor(docPath.get(`${row.id}:nota_fiscal`));
+      const boletoLink = linkFor(docPath.get(`${row.id}:boleto`));
 
       sheet.addRow([
         row.finance_submitted_at ? formatTimestampBRT(row.finance_submitted_at) : "",

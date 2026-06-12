@@ -2,6 +2,7 @@ import { after, NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { isVammoEmail } from "@/lib/auth";
+import { isSameOrigin } from "@/lib/http";
 import { notifyRequester, notifyRequesterRenewal } from "@/lib/slack";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -27,6 +28,10 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!isSameOrigin(request)) {
+    return NextResponse.json({ error: "Origem inválida." }, { status: 403 });
+  }
+
   const { id } = await params;
   if (!UUID_RE.test(id)) {
     return NextResponse.json({ error: "Identificador inválido." }, { status: 400 });
@@ -64,7 +69,11 @@ export async function POST(
         });
 
   if (rpcResult.error) {
-    return NextResponse.json({ error: rpcResult.error.message }, { status: 500 });
+    console.error("[decide] rpc failed:", rpcResult.error.message);
+    return NextResponse.json(
+      { error: "Não foi possível processar a decisão. Atualize a página e tente novamente." },
+      { status: 400 },
+    );
   }
 
   // Notify the requester. after() runs the work once the response is sent and

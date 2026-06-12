@@ -15,6 +15,7 @@ import {
 
 import { StatusBadge } from "@/components/status-badge";
 import { formatBRL, formatDate } from "@/lib/format";
+import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
 import type { CostCenter, PurchaseRequest } from "@/lib/types";
 
 /** Statuses that consume budget (committed spend). */
@@ -42,6 +43,7 @@ export function BudgetDetailModal({
   onClose: () => void;
   onOpenRequest: (r: PurchaseRequest) => void;
 }) {
+  useBodyScrollLock();
   const monthKey = monthStart.slice(0, 7);
 
   const monthCommitted = useMemo(
@@ -114,7 +116,7 @@ export function BudgetDetailModal({
             <h2 className="text-lg font-bold">{center.name}</h2>
             <p className="text-xs capitalize text-[var(--muted)]">{monthLabel}</p>
           </div>
-          <button onClick={onClose} className="text-[var(--faint)] hover:text-[var(--ink)]">✕</button>
+          <button onClick={onClose} aria-label="Fechar" className="text-[var(--faint)] hover:text-[var(--ink)]">✕</button>
         </div>
 
         <div className="space-y-6 px-6 py-5">
@@ -170,6 +172,7 @@ export function BudgetDetailModal({
                         border: "1px solid var(--line)",
                         borderRadius: 8,
                         fontSize: 12,
+                        color: "var(--ink)",
                       }}
                     />
                     {budget > 0 && (
@@ -246,7 +249,7 @@ function MiniStat({
 }) {
   return (
     <div className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-3">
-      <p className="v-tabular text-[9px] uppercase tracking-[0.15em] text-[var(--faint)]">{label}</p>
+      <p className="v-tabular text-[9px] uppercase tracking-[0.15em] text-[var(--muted)]">{label}</p>
       <p
         className="mt-1 truncate v-tabular text-sm font-bold"
         style={tone ? { color: `var(--${tone})` } : undefined}

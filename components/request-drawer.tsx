@@ -19,6 +19,7 @@ import {
   formatDateBR,
 } from "@/lib/payment";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
 import type {
   DocumentType,
   PaymentMethod,
@@ -48,6 +49,7 @@ export function RequestDrawer({
   onClose: () => void;
   onChanged: (message?: string) => void;
 }) {
+  useBodyScrollLock();
   const [items, setItems] = useState<RequestItem[]>([]);
   const [events, setEvents] = useState<RequestEvent[]>([]);
   const [documents, setDocuments] = useState<RequestDocument[]>([]);
@@ -203,7 +205,14 @@ export function RequestDrawer({
       setError(b.error ?? "Erro ao enviar dados de pagamento.");
       return;
     }
-    onChanged(`${request.display_id} enviada ao financeiro.`);
+    // Use the server-computed expected date (authoritative) over the preview.
+    const b = (await res.json().catch(() => ({}))) as { expected_payment_date?: string };
+    onChanged(
+      `${request.display_id} enviada ao financeiro.` +
+        (b.expected_payment_date
+          ? ` Pagamento previsto: ${formatDate(b.expected_payment_date)}.`
+          : ""),
+    );
   };
 
   const financeConfirm = async () => {
@@ -274,7 +283,7 @@ export function RequestDrawer({
                 <StatusBadge status={request.status} />
               </div>
             </div>
-            <button onClick={onClose} className="text-[var(--faint)] hover:text-[var(--ink)]">✕</button>
+            <button onClick={onClose} aria-label="Fechar" className="text-[var(--faint)] hover:text-[var(--ink)]">✕</button>
           </div>
         </div>
 
@@ -563,7 +572,7 @@ export function RequestDrawer({
                 <button
                   onClick={() => void submitPaymentInfo()}
                   disabled={busy}
-                  className="w-full rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
+                  className="w-full rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-60"
                 >
                   {busy ? "Enviando…" : "Enviar ao financeiro"}
                 </button>
@@ -608,7 +617,7 @@ export function RequestDrawer({
                 <button
                   onClick={() => void financeConfirm()}
                   disabled={busy}
-                  className="w-full rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
+                  className="w-full rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-60"
                 >
                   {busy ? "Confirmando…" : "Confirmar — aguardando pagamento"}
                 </button>
@@ -661,14 +670,14 @@ export function RequestDrawer({
               <button
                 onClick={() => void decide("approve")}
                 disabled={busy}
-                className="flex-1 rounded-lg bg-[var(--approved)] px-4 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
+                className="flex-1 rounded-lg bg-[var(--approved)] px-4 py-2.5 text-sm font-bold text-[var(--on-status)] transition hover:opacity-90 disabled:opacity-60"
               >
                 Aprovar
               </button>
               <button
                 onClick={() => void decide("reject")}
                 disabled={busy}
-                className="flex-1 rounded-lg bg-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
+                className="flex-1 rounded-lg bg-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-[var(--on-status)] transition hover:opacity-90 disabled:opacity-60"
               >
                 Recusar
               </button>

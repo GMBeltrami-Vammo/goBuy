@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import { formatBRL } from "@/lib/format";
 import { CURRENCIES, formatAmount } from "@/lib/payment";
+import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
 import type { CostCenter, RequestType } from "@/lib/types";
 
 interface ItemDraft {
@@ -31,6 +32,7 @@ export function NewRequestModal({
   onClose: () => void;
   onSubmitted: (displayId: string) => void;
 }) {
+  useBodyScrollLock();
   const [type, setType] = useState<RequestType>("products");
   const [supplier, setSupplier] = useState("");
   const [supplierDoc, setSupplierDoc] = useState("");
@@ -181,7 +183,7 @@ export function NewRequestModal({
       <div className="modal-enter w-full max-w-2xl rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
         <div className="flex items-center justify-between border-b border-[var(--line)] px-6 py-4">
           <h2 className="text-lg font-bold">Nova solicitação</h2>
-          <button onClick={onClose} className="text-[var(--faint)] hover:text-[var(--ink)]">✕</button>
+          <button onClick={onClose} aria-label="Fechar" className="text-[var(--faint)] hover:text-[var(--ink)]">✕</button>
         </div>
 
         <div className="space-y-6 px-6 py-5">
@@ -327,6 +329,7 @@ export function NewRequestModal({
                           prev.map((x, idx) => (idx === i ? { ...x, ccId: e.target.value } : x)),
                         )
                       }
+                      aria-label={`Centro de custo do rateio ${i + 1}`}
                       className="input flex-1 text-sm"
                     >
                       <option value="">Centro de custo…</option>
@@ -351,6 +354,7 @@ export function NewRequestModal({
                           prev.map((x, idx) => (idx === i ? { ...x, percentage: e.target.value } : x)),
                         )
                       }
+                      aria-label={`Percentual do rateio ${i + 1}`}
                       className="input w-24 text-right text-sm"
                     />
                     <span className="text-sm text-[var(--muted)]">%</span>
@@ -376,6 +380,7 @@ export function NewRequestModal({
                       Math.abs(allocTotal - 100) > 0.01 ? "text-[var(--rejected)]" : "text-[var(--approved)]"
                     }`}
                   >
+                    {Math.abs(allocTotal - 100) > 0.01 ? "⚠ " : "✓ "}
                     {allocTotal.toFixed(2).replace(".", ",")}% / 100%
                   </p>
                 </div>

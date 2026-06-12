@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { isVammoEmail } from "@/lib/auth";
+import { isSameOrigin } from "@/lib/http";
 import { allowedDocTypes } from "@/lib/payment";
 import { DOCUMENTS_BUCKET, supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -39,9 +40,7 @@ const sanitizeFilename = (name: string) =>
 
 export async function POST(request: Request) {
   // 0) Same-origin check (CSRF defense-in-depth).
-  const origin = request.headers.get("origin");
-  const host = request.headers.get("host");
-  if (origin && host && new URL(origin).host !== host) {
+  if (!isSameOrigin(request)) {
     return NextResponse.json({ error: "Origem inválida." }, { status: 403 });
   }
 

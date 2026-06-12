@@ -230,7 +230,7 @@ export function FinanceDashboard({
                 </button>
                 <button
                   onClick={() => setOpenRequest(r)}
-                  className="rounded-lg bg-[var(--awaiting-finance)] px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90"
+                  className="rounded-lg bg-[var(--awaiting-finance)] px-3 py-1.5 text-xs font-bold text-[var(--on-status)] transition hover:opacity-90"
                 >
                   Validar
                 </button>
@@ -275,7 +275,7 @@ export function FinanceDashboard({
                 <button
                   onClick={() => markPaid(r)}
                   disabled={busyId === r.id}
-                  className="rounded-lg bg-[var(--paid)] px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-60"
+                  className="rounded-lg bg-[var(--paid)] px-3 py-1.5 text-xs font-bold text-[var(--on-status)] transition hover:opacity-90 disabled:opacity-60"
                 >
                   {busyId === r.id ? "…" : "Marcar paga"}
                 </button>
@@ -364,6 +364,7 @@ export function FinanceDashboard({
 
       {openRequest && (
         <RequestDrawer
+          key={openRequest.id}
           request={openRequest}
           viewerEmail={email}
           supabaseToken={supabaseToken}

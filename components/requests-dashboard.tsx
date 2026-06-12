@@ -184,6 +184,7 @@ export function RequestsDashboard({
 
       {openRequest && (
         <RequestDrawer
+          key={openRequest.id}
           request={openRequest}
           viewerEmail={email}
           supabaseToken={supabaseToken}
