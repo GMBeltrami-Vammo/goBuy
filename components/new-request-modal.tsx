@@ -213,7 +213,18 @@ export function NewRequestModal({
             <Field label="Departamento / Head">
               <input
                 readOnly
-                value={selectedCc ? selectedCc.department : ""}
+                value={
+                  selectedCc
+                    ? (() => {
+                        const heads = (selectedCc.cost_center_heads ?? [])
+                          .map((h) => h.head_name ?? h.head_email.split("@")[0])
+                          .join(", ");
+                        return heads
+                          ? `${selectedCc.department} · ${heads}`
+                          : selectedCc.department;
+                      })()
+                    : ""
+                }
                 placeholder="Preenchido pelo centro de custo"
                 className="input bg-[var(--surface-2)] text-[var(--muted)]"
               />

@@ -9,6 +9,7 @@ export interface CostCenter {
   name: string;
   department: string;
   active: boolean;
+  cost_center_heads?: { head_name: string | null; head_email: string }[];
 }
 
 export interface CostCenterHead {

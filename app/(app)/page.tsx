@@ -10,7 +10,7 @@ export default async function HomePage() {
 
   const { data: costCenters } = await supabaseAdmin()
     .from("cost_centers")
-    .select("id, code, name, department, active")
+    .select("id, code, name, department, active, cost_center_heads(head_name, head_email)")
     .eq("active", true)
     .order("department")
     .order("code");
