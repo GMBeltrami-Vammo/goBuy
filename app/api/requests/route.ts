@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { isVammoEmail } from "@/lib/auth";
-import { notifyNewRequest } from "@/lib/slack";
+import { notifyHead } from "@/lib/slack";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
@@ -31,28 +31,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Requisição inválida." }, { status: 400 });
   }
 
-  // RPC runs with the user's JWT so RLS sees the correct requester identity.
   const supabase = supabaseBrowser(session.supabaseToken ?? "");
-  const { data, error } = await supabase.rpc("submit_purchase_request", {
-    p_payload: payload,
-  });
+  const { data, error } = await supabase.rpc("submit_purchase_request", { p_payload: payload });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Compute total for the Slack message (mirrors new-request-modal logic).
+  // Compute total for Slack (mirrors new-request-modal logic).
   let totalAmount = 0;
   if (typeof payload.total_amount === "number") {
     totalAmount = payload.total_amount;
   } else if (Array.isArray(payload.items)) {
-    totalAmount = payload.items.reduce(
-      (s, i) => s + (i.quantity ?? 0) * (i.unit_value ?? 0),
-      0,
-    );
+    totalAmount = payload.items.reduce((s, i) => s + (i.quantity ?? 0) * (i.unit_value ?? 0), 0);
   }
 
-  // Fire-and-forget Slack DM — errors here never block the response.
+  // Fire-and-forget: notify the head with Approve/Reject buttons.
   void (async () => {
     try {
       const { data: cc } = await supabaseAdmin()
@@ -61,7 +55,8 @@ export async function POST(request: Request) {
         .eq("id", payload.cost_center_id ?? 0)
         .maybeSingle();
 
-      await notifyNewRequest({
+      await notifyHead({
+        requestId: (data as { id: string }).id,
         displayId: (data as { display_id: string }).display_id,
         requesterEmail,
         supplierName: payload.supplier_name ?? "—",
@@ -72,7 +67,7 @@ export async function POST(request: Request) {
         justification: payload.justification ?? null,
       });
     } catch (err) {
-      console.error("[slack notify] failed:", err);
+      console.error("[slack notifyHead] failed:", err);
     }
   })();
 

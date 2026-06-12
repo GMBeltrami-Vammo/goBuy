@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { NewRequestModal } from "@/components/new-request-modal";
 import { RequestDrawer } from "@/components/request-drawer";
@@ -14,17 +14,20 @@ export function RequestsDashboard({
   firstName,
   supabaseToken,
   initialCostCenters,
+  autoOpenDisplayId,
 }: {
   email: string;
   firstName: string;
   supabaseToken: string;
   initialCostCenters: CostCenter[];
+  autoOpenDisplayId?: string;
 }) {
   const [requests, setRequests] = useState<PurchaseRequest[] | null>(null);
   const [costCenters] = useState<CostCenter[]>(initialCostCenters);
   const [openRequest, setOpenRequest] = useState<PurchaseRequest | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const autoOpened = useRef(false);
 
   const load = useCallback(async () => {
     const supabase = supabaseBrowser(supabaseToken);
@@ -39,6 +42,16 @@ export function RequestsDashboard({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Auto-open a specific request when linked from Slack.
+  useEffect(() => {
+    if (!autoOpenDisplayId || autoOpened.current || !requests) return;
+    const match = requests.find((r) => r.display_id === autoOpenDisplayId);
+    if (match) {
+      autoOpened.current = true;
+      setOpenRequest(match);
+    }
+  }, [autoOpenDisplayId, requests]);
 
   const summary = useMemo(() => {
     const list = requests ?? [];

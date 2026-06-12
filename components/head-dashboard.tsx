@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { RequestDrawer } from "@/components/request-drawer";
 import { StatusBadge, TypeBadge } from "@/components/status-badge";
@@ -21,10 +21,12 @@ export function HeadDashboard({
   email,
   centerIds,
   supabaseToken,
+  autoOpenDisplayId,
 }: {
   email: string;
   centerIds: number[];
   supabaseToken: string;
+  autoOpenDisplayId?: string;
 }) {
   const [centers, setCenters] = useState<CostCenter[]>([]);
   const [budgets, setBudgets] = useState<CostCenterBudget[]>([]);
@@ -32,6 +34,7 @@ export function HeadDashboard({
   const [openRequest, setOpenRequest] = useState<PurchaseRequest | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [toast, setToast] = useState<string | null>(null);
+  const autoOpened = useRef(false);
 
   const monthStart = useMemo(() => {
     const d = new Date();
@@ -62,6 +65,16 @@ export function HeadDashboard({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Auto-open a specific request when linked from Slack.
+  useEffect(() => {
+    if (!autoOpenDisplayId || autoOpened.current || !requests) return;
+    const match = requests.find((r) => r.display_id === autoOpenDisplayId);
+    if (match) {
+      autoOpened.current = true;
+      setOpenRequest(match);
+    }
+  }, [autoOpenDisplayId, requests]);
 
   // Committed this month = approved + paid requests created in the month.
   const committedByCenter = useMemo(() => {

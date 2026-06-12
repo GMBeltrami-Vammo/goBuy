@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { isVammoEmail } from "@/lib/auth";
-import { notifyDecision } from "@/lib/slack";
+import { notifyRequester } from "@/lib/slack";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
@@ -40,7 +40,7 @@ export async function POST(
     return NextResponse.json({ error: "Informe o motivo da recusa." }, { status: 400 });
   }
 
-  // RPC runs with the user JWT so RLS enforces head-of-cost-center authorization.
+  // RPC with user JWT — RLS enforces head-of-cost-center authorization.
   const supabase = supabaseBrowser(session.supabaseToken ?? "");
   const rpcResult =
     action === "approve"
@@ -54,28 +54,27 @@ export async function POST(
     return NextResponse.json({ error: rpcResult.error.message }, { status: 500 });
   }
 
-  // Fire-and-forget Slack DM.
+  // Fire-and-forget: notify the requester.
   void (async () => {
     try {
       const { data: req } = await supabaseAdmin()
         .from("purchase_requests")
-        .select("display_id, supplier_name, total_amount, requester_email")
+        .select("display_id, supplier_name, total_amount")
         .eq("id", id)
         .maybeSingle();
 
       if (req) {
-        await notifyDecision({
+        await notifyRequester({
           displayId: req.display_id as string,
-          action,
+          action: action as "approved" | "rejected",
           deciderEmail,
-          requesterEmail: req.requester_email as string,
           supplierName: req.supplier_name as string,
           totalAmount: Number(req.total_amount),
           reason: reason?.trim() ?? null,
         });
       }
     } catch (err) {
-      console.error("[slack notify] decision failed:", err);
+      console.error("[slack notifyRequester] failed:", err);
     }
   })();
 
