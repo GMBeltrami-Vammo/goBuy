@@ -272,6 +272,103 @@ export async function updateHeadMessage(
   }
 }
 
+// ─── Renewal prompt (recurring service approved) ─────────────────────────────
+export interface RenewalNotification {
+  requestId: string;
+  displayId: string;
+  supplierName: string;
+  totalAmount: number;
+  servicePeriod: string;
+  nextPeriodLabel: string; // e.g. "Julho/2026"
+}
+
+export async function notifyRequesterRenewal(req: RenewalNotification): Promise<void> {
+  if (!process.env.SLACK_BOT_TOKEN) return;
+
+  const blocks: object[] = [
+    {
+      type: "header",
+      text: { type: "plain_text", text: `🔄  Renovar · ${req.displayId}`, emoji: true },
+    },
+    {
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: `*Fornecedor:*\n${req.supplierName}` },
+        { type: "mrkdwn", text: `*Valor:*\n${brl(req.totalAmount)}` },
+        { type: "mrkdwn", text: `*Periodicidade:*\n${req.servicePeriod}` },
+      ],
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `Solicitação *${req.displayId}* aprovada. Use o botão abaixo para criar a renovação para *${req.nextPeriodLabel}* com os mesmos dados — o head receberá a notificação normalmente.`,
+      },
+    },
+    { type: "divider" },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          style: "primary",
+          text: { type: "plain_text", text: `🔄  Renovar para ${req.nextPeriodLabel}`, emoji: true },
+          action_id: "renew_request",
+          value: req.requestId,
+          confirm: {
+            title: { type: "plain_text", text: "Confirmar renovação" },
+            text: {
+              type: "mrkdwn",
+              text: `Criar nova solicitação idêntica para *${req.nextPeriodLabel}*?`,
+            },
+            confirm: { type: "plain_text", text: "Renovar" },
+            deny: { type: "plain_text", text: "Cancelar" },
+            style: "primary",
+          },
+        },
+      ],
+    },
+  ];
+
+  try {
+    await slackPost("chat.postMessage", {
+      channel: await resolveDmChannel(TEST_RECIPIENT_USER_ID),
+      text: `Renovar solicitação ${req.displayId} para ${req.nextPeriodLabel}`,
+      blocks,
+    });
+  } catch (err) {
+    console.error("[slack] notifyRequesterRenewal failed:", err);
+  }
+}
+
+/** Update a renewal prompt message after the renewal is submitted. */
+export async function updateRenewalMessage(
+  channel: string,
+  ts: string,
+  originalDisplayId: string,
+  newDisplayId: string,
+): Promise<void> {
+  if (!process.env.SLACK_BOT_TOKEN) return;
+  try {
+    await slackPost("chat.update", {
+      channel,
+      ts,
+      text: `Renovação ${newDisplayId} enviada.`,
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `✅  Solicitação *${newDisplayId}* criada como renovação de *${originalDisplayId}*. O head será notificado para aprovação.`,
+          },
+        },
+      ],
+    });
+  } catch (err) {
+    console.error("[slack] updateRenewalMessage failed:", err);
+  }
+}
+
 // ─── Open rejection modal ─────────────────────────────────────────────────────
 export async function openRejectModal(
   triggerId: string,

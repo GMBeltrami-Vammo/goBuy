@@ -2,13 +2,26 @@ import { after, NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { isVammoEmail } from "@/lib/auth";
-import { notifyRequester } from "@/lib/slack";
+import { notifyRequester, notifyRequesterRenewal } from "@/lib/slack";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
 export const runtime = "nodejs";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const MONTHS_PT = [
+  "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+  "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro",
+];
+
+function nextPeriodLabel(servicePeriod: string): string {
+  const d = new Date();
+  const months = servicePeriod === "Anual" ? 12 : servicePeriod === "Trimestral" ? 3 : 1;
+  d.setDate(1);
+  d.setMonth(d.getMonth() + months);
+  return `${MONTHS_PT[d.getMonth()]}/${d.getFullYear()}`;
+}
 
 export async function POST(
   request: Request,
@@ -60,7 +73,7 @@ export async function POST(
     try {
       const { data: req } = await supabaseAdmin()
         .from("purchase_requests")
-        .select("display_id, supplier_name, total_amount")
+        .select("display_id, supplier_name, total_amount, request_type, service_period")
         .eq("id", id)
         .maybeSingle();
 
@@ -73,6 +86,23 @@ export async function POST(
           totalAmount: Number(req.total_amount),
           reason: reason?.trim() ?? null,
         });
+
+        const sp = req.service_period as string | null;
+        if (
+          action === "approve" &&
+          req.request_type === "service" &&
+          sp &&
+          sp !== "Pontual / avulso"
+        ) {
+          await notifyRequesterRenewal({
+            requestId: id,
+            displayId: req.display_id as string,
+            supplierName: req.supplier_name as string,
+            totalAmount: Number(req.total_amount),
+            servicePeriod: sp,
+            nextPeriodLabel: nextPeriodLabel(sp),
+          });
+        }
       }
     } catch (err) {
       console.error("[slack notifyRequester] failed:", err);

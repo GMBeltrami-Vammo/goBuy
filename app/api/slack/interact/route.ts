@@ -4,9 +4,13 @@ import { after, NextResponse } from "next/server";
 
 import {
   SLACK_USER_EMAIL,
+  RenewalNotification,
+  notifyHead,
   notifyRequester,
+  notifyRequesterRenewal,
   openRejectModal,
   updateHeadMessage,
+  updateRenewalMessage,
 } from "@/lib/slack";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -78,6 +82,87 @@ async function applyDecision(
           p_reason: reason ?? "",
         });
   return { error: res.error?.message ?? null };
+}
+
+// ─── Renewal helpers ──────────────────────────────────────────────────────────
+function addMonths(dateStr: string, months: number): string {
+  const d = new Date(dateStr);
+  d.setDate(1); // avoid end-of-month overflow before shifting
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+
+const MONTHS_PT = [
+  "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+  "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro",
+];
+
+function nextPeriodLabel(servicePeriod: string): string {
+  const months = servicePeriod === "Anual" ? 12 : servicePeriod === "Trimestral" ? 3 : 1;
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + months);
+  return `${MONTHS_PT[d.getMonth()]}/${d.getFullYear()}`;
+}
+
+interface RenewalRow {
+  request_type: string;
+  supplier_name: string;
+  supplier_document: string | null;
+  cost_center_id: number;
+  justification: string | null;
+  notes: string | null;
+  total_amount: number;
+  service_period: string | null;
+  service_start: string | null;
+  service_end: string | null;
+}
+
+async function submitRenewal(
+  actorEmail: string,
+  originalId: string,
+): Promise<{ newId: string; newDisplayId: string; servicePeriod: string; error: string | null }> {
+  const { data: orig } = await supabaseAdmin()
+    .from("purchase_requests")
+    .select(
+      "request_type, supplier_name, supplier_document, cost_center_id, justification, notes, total_amount, service_period, service_start, service_end",
+    )
+    .eq("id", originalId)
+    .maybeSingle();
+
+  if (!orig) return { newId: "", newDisplayId: "", servicePeriod: "", error: "Solicitação original não encontrada." };
+
+  const row = orig as RenewalRow;
+  if (row.request_type !== "service") {
+    return { newId: "", newDisplayId: "", servicePeriod: "", error: "Renovação disponível apenas para serviços." };
+  }
+
+  const advanceMonths = row.service_period === "Anual" ? 12 : row.service_period === "Trimestral" ? 3 : 1;
+
+  const payload: Record<string, unknown> = {
+    request_type: "service",
+    supplier_name: row.supplier_name,
+    supplier_document: row.supplier_document ?? null,
+    cost_center_id: row.cost_center_id,
+    justification: row.justification ?? null,
+    notes: row.notes ?? null,
+    total_amount: Number(row.total_amount),
+    service_period: row.service_period,
+  };
+  if (row.service_start) payload.service_start = addMonths(row.service_start, advanceMonths);
+  if (row.service_end) payload.service_end = addMonths(row.service_end, advanceMonths);
+
+  const token = await mintSupabaseToken(actorEmail);
+  const supabase = supabaseBrowser(token);
+  const { data, error } = await supabase.rpc("submit_purchase_request", { p_payload: payload });
+
+  if (error) return { newId: "", newDisplayId: "", servicePeriod: row.service_period ?? "", error: error.message };
+  return {
+    newId: (data as { id: string }).id,
+    newDisplayId: (data as { display_id: string }).display_id,
+    servicePeriod: row.service_period ?? "",
+    error: null,
+  };
 }
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
@@ -157,6 +242,23 @@ export async function POST(request: Request) {
             totalAmount: Number(req.total_amount),
             reason: null,
           });
+          // Send renewal prompt if it's a recurring service.
+          const { data: full } = await supabaseAdmin()
+            .from("purchase_requests")
+            .select("service_period, request_type")
+            .eq("id", requestId)
+            .maybeSingle();
+          const sp = (full as { service_period?: string | null } | null)?.service_period;
+          if (full && (full as { request_type: string }).request_type === "service" && sp && sp !== "Pontual / avulso") {
+            await notifyRequesterRenewal({
+              requestId,
+              displayId: req.display_id,
+              supplierName: req.supplier_name,
+              totalAmount: Number(req.total_amount),
+              servicePeriod: sp,
+              nextPeriodLabel: nextPeriodLabel(sp),
+            });
+          }
         } catch (err) {
           console.error("[slack/interact] approve failed:", err);
         }
@@ -177,6 +279,59 @@ export async function POST(request: Request) {
       } catch (err) {
         console.error("[slack/interact] openRejectModal failed:", err);
       }
+      return new NextResponse(null, { status: 200 });
+    }
+
+    if (action.action_id === "renew_request") {
+      if (!actorEmail) return new NextResponse(null, { status: 200 });
+      after(async () => {
+        try {
+          const { newId, newDisplayId, servicePeriod, error } = await submitRenewal(actorEmail, requestId);
+          if (error) {
+            console.error("[slack/interact] renewal RPC failed:", error);
+            return;
+          }
+          // Update the renewal prompt message in the requester's DM.
+          if (channelId && messageTs) {
+            await updateRenewalMessage(channelId, messageTs, action.value ?? "", newDisplayId);
+          }
+          // Notify the head about the new request (same flow as a web submission).
+          const { data: orig } = await supabaseAdmin()
+            .from("purchase_requests")
+            .select("display_id, supplier_name, total_amount, cost_center_id, request_type, justification, requester_email")
+            .eq("id", requestId)
+            .maybeSingle();
+          if (orig) {
+            const { data: cc } = await supabaseAdmin()
+              .from("cost_centers")
+              .select("code, name")
+              .eq("id", (orig as { cost_center_id: number }).cost_center_id)
+              .maybeSingle();
+            await notifyHead({
+              requestId: newId,
+              displayId: newDisplayId,
+              requesterEmail: (orig as { requester_email: string }).requester_email,
+              supplierName: (orig as { supplier_name: string }).supplier_name,
+              totalAmount: Number((orig as { total_amount: number }).total_amount),
+              requestType: (orig as { request_type: string }).request_type,
+              costCenterCode: cc?.code ?? null,
+              costCenterName: cc?.name ?? null,
+              justification: (orig as { justification: string | null }).justification ?? null,
+            });
+            // Send next renewal prompt to the requester after this one is submitted.
+            await notifyRequesterRenewal({
+              requestId: newId,
+              displayId: newDisplayId,
+              supplierName: (orig as { supplier_name: string }).supplier_name,
+              totalAmount: Number((orig as { total_amount: number }).total_amount),
+              servicePeriod,
+              nextPeriodLabel: nextPeriodLabel(servicePeriod),
+            } as RenewalNotification);
+          }
+        } catch (err) {
+          console.error("[slack/interact] renew_request failed:", err);
+        }
+      });
       return new NextResponse(null, { status: 200 });
     }
 
