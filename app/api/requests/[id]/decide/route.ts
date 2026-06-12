@@ -1,5 +1,4 @@
-import { waitUntil } from "@vercel/functions";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { isVammoEmail } from "@/lib/auth";
@@ -55,32 +54,30 @@ export async function POST(
     return NextResponse.json({ error: rpcResult.error.message }, { status: 500 });
   }
 
-  // Notify the requester. waitUntil keeps the function alive until the
-  // Slack call finishes (a bare promise is killed when the response returns).
-  waitUntil(
-    (async () => {
-      try {
-        const { data: req } = await supabaseAdmin()
-          .from("purchase_requests")
-          .select("display_id, supplier_name, total_amount")
-          .eq("id", id)
-          .maybeSingle();
+  // Notify the requester. after() runs the work once the response is sent and
+  // keeps the function alive until it settles (a bare promise would be killed).
+  after(async () => {
+    try {
+      const { data: req } = await supabaseAdmin()
+        .from("purchase_requests")
+        .select("display_id, supplier_name, total_amount")
+        .eq("id", id)
+        .maybeSingle();
 
-        if (req) {
-          await notifyRequester({
-            displayId: req.display_id as string,
-            action: (action === "approve" ? "approved" : "rejected"),
-            deciderEmail,
-            supplierName: req.supplier_name as string,
-            totalAmount: Number(req.total_amount),
-            reason: reason?.trim() ?? null,
-          });
-        }
-      } catch (err) {
-        console.error("[slack notifyRequester] failed:", err);
+      if (req) {
+        await notifyRequester({
+          displayId: req.display_id as string,
+          action: action === "approve" ? "approved" : "rejected",
+          deciderEmail,
+          supplierName: req.supplier_name as string,
+          totalAmount: Number(req.total_amount),
+          reason: reason?.trim() ?? null,
+        });
       }
-    })(),
-  );
+    } catch (err) {
+      console.error("[slack notifyRequester] failed:", err);
+    }
+  });
 
   return NextResponse.json({ ok: true });
 }
