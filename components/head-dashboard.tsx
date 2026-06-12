@@ -14,6 +14,13 @@ const BudgetDonut = dynamic(
   () => import("@/components/budget-donut").then((m) => m.BudgetDonut),
   { ssr: false, loading: () => <div className="h-36 w-36 animate-pulse rounded-full bg-[var(--surface-2)]" /> },
 );
+const BudgetDetailModal = dynamic(
+  () => import("@/components/budget-detail-modal").then((m) => m.BudgetDetailModal),
+  { ssr: false },
+);
+
+/** Statuses that consume budget: aprovada em diante (exceto recusada/cancelada). */
+const COMMITTED_STATUSES = new Set(["approved", "awaiting_finance", "awaiting_payment", "paid"]);
 
 type SortKey = "value" | "date" | "department";
 
@@ -32,6 +39,7 @@ export function HeadDashboard({
   const [budgets, setBudgets] = useState<CostCenterBudget[]>([]);
   const [requests, setRequests] = useState<PurchaseRequest[] | null>(null);
   const [openRequest, setOpenRequest] = useState<PurchaseRequest | null>(null);
+  const [detailCenter, setDetailCenter] = useState<CostCenter | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [toast, setToast] = useState<string | null>(null);
   const autoOpened = useRef(false);
@@ -76,11 +84,12 @@ export function HeadDashboard({
     }
   }, [autoOpenDisplayId, requests]);
 
-  // Committed this month = approved + paid requests created in the month.
+  // Committed this month = anything approved onwards (incl. awaiting finance /
+  // payment) created in the month.
   const committedByCenter = useMemo(() => {
     const map = new Map<number, number>();
     for (const r of requests ?? []) {
-      if (r.status !== "approved" && r.status !== "paid") continue;
+      if (!COMMITTED_STATUSES.has(r.status)) continue;
       if (r.created_at.slice(0, 7) !== monthStart.slice(0, 7)) continue;
       map.set(r.cost_center_id, (map.get(r.cost_center_id) ?? 0) + Number(r.total_amount));
     }
@@ -165,9 +174,11 @@ export function HeadDashboard({
           const budget = budgetByCenter.get(cc.id) ?? 0;
           const consumed = committedByCenter.get(cc.id) ?? 0;
           return (
-            <div
+            <button
               key={cc.id}
-              className="flex items-center gap-4 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 shadow-[var(--shadow)]"
+              onClick={() => setDetailCenter(cc)}
+              className="flex items-center gap-4 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-left shadow-[var(--shadow)] transition hover:border-[var(--accent)]"
+              title="Ver detalhes do budget"
             >
               <BudgetDonut consumed={consumed} budget={budget} />
               <div className="min-w-0">
@@ -181,8 +192,11 @@ export function HeadDashboard({
                   <span className="text-[var(--ink)]">{formatBRL(consumed)}</span>
                   {budget > 0 && <> / {formatBRL(budget)}</>}
                 </p>
+                <p className="mt-1 text-[10px] font-semibold text-[var(--accent)]">
+                  Detalhes →
+                </p>
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
@@ -287,6 +301,20 @@ export function HeadDashboard({
             ))}
           </ul>
         </div>
+      )}
+
+      {detailCenter && (
+        <BudgetDetailModal
+          center={detailCenter}
+          budget={budgetByCenter.get(detailCenter.id) ?? 0}
+          requests={requests ?? []}
+          monthStart={monthStart}
+          onClose={() => setDetailCenter(null)}
+          onOpenRequest={(r) => {
+            setDetailCenter(null);
+            setOpenRequest(r);
+          }}
+        />
       )}
 
       {openRequest && (

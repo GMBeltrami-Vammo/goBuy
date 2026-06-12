@@ -3,7 +3,12 @@ import { redirect } from "next/navigation";
 import { FinanceDashboard } from "@/components/finance-dashboard";
 import { getSessionContext } from "@/lib/auth";
 
-export default async function FinancePage() {
+export default async function FinancePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ r?: string }>;
+}) {
+  const { r } = await searchParams;
   const ctx = await getSessionContext();
   if (!ctx) redirect("/login");
 
@@ -16,6 +21,7 @@ export default async function FinancePage() {
       email={ctx.email}
       canMarkPaid={canFinance}
       supabaseToken={ctx.supabaseToken}
+      autoOpenDisplayId={r}
     />
   );
 }

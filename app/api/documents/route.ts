@@ -4,8 +4,10 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { isVammoEmail } from "@/lib/auth";
+import { allowedDocTypes } from "@/lib/payment";
 import { DOCUMENTS_BUCKET, supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import type { DocumentType, RequestStatus } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -15,7 +17,16 @@ const ALLOWED_TYPES: Record<string, string[]> = {
   "image/png": [".png"],
   "image/jpeg": [".jpg", ".jpeg"],
 };
-const DOC_TYPES = new Set(["nota_fiscal", "quotation", "invoice", "receipt", "contract", "other"]);
+const DOC_TYPES = new Set([
+  "nota_fiscal",
+  "quotation",
+  "invoice",
+  "receipt",
+  "contract",
+  "boleto",
+  "debit_note",
+  "other",
+]);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const sanitizeFilename = (name: string) =>
@@ -84,6 +95,20 @@ export async function POST(request: Request) {
   if (req.status === "cancelled" || req.status === "rejected") {
     return NextResponse.json(
       { error: "Não é possível anexar documentos a solicitações canceladas ou recusadas." },
+      { status: 409 },
+    );
+  }
+
+  // Gate doc types by lifecycle: pending accepts only cotações/contratos;
+  // NF, fatura, recibo, nota de débito e boleto exigem aprovação prévia.
+  if (!allowedDocTypes(req.status as RequestStatus).includes(docType as DocumentType)) {
+    return NextResponse.json(
+      {
+        error:
+          req.status === "pending"
+            ? "Enquanto pendente, apenas cotações e contratos podem ser anexados."
+            : "Tipo de documento não permitido neste status.",
+      },
       { status: 409 },
     );
   }

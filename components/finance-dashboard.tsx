@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { RequestDrawer } from "@/components/request-drawer";
 import { StatusBadge, TypeBadge } from "@/components/status-badge";
@@ -12,10 +12,12 @@ export function FinanceDashboard({
   email,
   canMarkPaid,
   supabaseToken,
+  autoOpenDisplayId,
 }: {
   email: string;
   canMarkPaid: boolean;
   supabaseToken: string;
+  autoOpenDisplayId?: string;
 }) {
   const [requests, setRequests] = useState<PurchaseRequest[] | null>(null);
   const [openRequest, setOpenRequest] = useState<PurchaseRequest | null>(null);
@@ -25,6 +27,17 @@ export function FinanceDashboard({
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const autoOpened = useRef(false);
+
+  useEffect(() => {
+    if (!autoOpenDisplayId || autoOpened.current || !requests) return;
+    const match = requests.find((r) => r.display_id === autoOpenDisplayId);
+    if (match) {
+      autoOpened.current = true;
+      setOpenRequest(match);
+    }
+  }, [autoOpenDisplayId, requests]);
 
   const load = useCallback(async () => {
     const { data } = await supabaseBrowser(supabaseToken)
@@ -62,8 +75,13 @@ export function FinanceDashboard({
     return list;
   }, [requests, statusFilter, typeFilter, deptFilter, search]);
 
+  const toValidate = useMemo(
+    () => (requests ?? []).filter((r) => r.status === "awaiting_finance"),
+    [requests],
+  );
+
   const toPay = useMemo(
-    () => (requests ?? []).filter((r) => r.status === "approved"),
+    () => (requests ?? []).filter((r) => r.status === "awaiting_payment"),
     [requests],
   );
 
@@ -89,6 +107,27 @@ export function FinanceDashboard({
     }
     flash(`${r.display_id} marcada como paga.`);
     void load();
+  };
+
+  const exportXLSX = async () => {
+    setExporting(true);
+    try {
+      const res = await fetch("/api/export");
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        flash(b.error ?? "Erro ao gerar o export.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "gobuy-pagamentos.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
   };
 
   const exportCSV = () => {
@@ -132,12 +171,23 @@ export function FinanceDashboard({
             Todas as solicitações, documentos fiscais e execução de pagamentos.
           </p>
         </div>
-        <button
-          onClick={exportCSV}
-          className="rounded-lg border border-[var(--line-strong)] px-4 py-2 text-sm font-medium transition hover:border-[var(--accent)]"
-        >
-          Exportar CSV
-        </button>
+        <div className="flex gap-2">
+          {canMarkPaid && (
+            <button
+              onClick={() => void exportXLSX()}
+              disabled={exporting}
+              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-60"
+            >
+              {exporting ? "Gerando…" : "Exportar pagamentos (XLSX)"}
+            </button>
+          )}
+          <button
+            onClick={exportCSV}
+            className="rounded-lg border border-[var(--line-strong)] px-4 py-2 text-sm font-medium transition hover:border-[var(--accent)]"
+          >
+            Exportar CSV
+          </button>
+        </div>
       </div>
 
       {toast && (
@@ -146,12 +196,56 @@ export function FinanceDashboard({
         </p>
       )}
 
+      {/* Validation queue */}
+      {canMarkPaid && toValidate.length > 0 && (
+        <div className="reveal reveal-2 mt-7 overflow-hidden rounded-xl border border-[var(--awaiting-finance)] bg-[var(--surface)] shadow-[var(--shadow)]">
+          <div className="border-b border-[var(--line)] bg-[var(--awaiting-finance-soft)] px-5 py-3">
+            <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--awaiting-finance)]">
+              Aguardando validação · {toValidate.length} ·{" "}
+              {formatBRL(toValidate.reduce((a, r) => a + Number(r.total_amount), 0))}
+            </h2>
+          </div>
+          <ul>
+            {toValidate.map((r) => (
+              <li
+                key={r.id}
+                className="flex items-center gap-4 border-b border-[var(--line)] px-5 py-3 last:border-b-0"
+              >
+                <button
+                  onClick={() => setOpenRequest(r)}
+                  className="flex min-w-0 flex-1 items-center gap-4 text-left"
+                >
+                  <span className="v-tabular text-xs font-semibold text-[var(--accent)]">
+                    {r.display_id}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                    {r.supplier_name}
+                  </span>
+                  <span className="hidden text-xs text-[var(--muted)] sm:block">
+                    {r.expected_payment_date ? `Previsão ${formatDate(r.expected_payment_date)}` : ""}
+                  </span>
+                  <span className="v-tabular text-sm font-bold">
+                    {formatBRL(Number(r.total_amount))}
+                  </span>
+                </button>
+                <button
+                  onClick={() => setOpenRequest(r)}
+                  className="rounded-lg bg-[var(--awaiting-finance)] px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90"
+                >
+                  Validar
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Payment queue */}
       {canMarkPaid && toPay.length > 0 && (
         <div className="reveal reveal-2 mt-7 overflow-hidden rounded-xl border border-[var(--paid)] bg-[var(--surface)] shadow-[var(--shadow)]">
           <div className="border-b border-[var(--line)] bg-[var(--paid-soft)] px-5 py-3">
             <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--paid)]">
-              Fila de pagamento · {toPay.length} aprovada{toPay.length === 1 ? "" : "s"} ·{" "}
+              Fila de pagamento · {toPay.length} ·{" "}
               {formatBRL(toPay.reduce((a, r) => a + Number(r.total_amount), 0))}
             </h2>
           </div>
@@ -274,6 +368,7 @@ export function FinanceDashboard({
           viewerEmail={email}
           supabaseToken={supabaseToken}
           canDecide={false}
+          canFinance={canMarkPaid}
           onClose={() => setOpenRequest(null)}
           onChanged={(msg) => {
             setOpenRequest(null);

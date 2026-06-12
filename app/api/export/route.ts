@@ -1,0 +1,229 @@
+import ExcelJS from "exceljs";
+import { NextResponse } from "next/server";
+
+import { getSessionContext } from "@/lib/auth";
+import { currencyLabel } from "@/lib/payment";
+import { DOCUMENTS_BUCKET, supabaseAdmin } from "@/lib/supabase/admin";
+
+export const runtime = "nodejs";
+
+// Links no export precisam ser permanentes (a planilha vive fora do app).
+// O bucket continua privado; usamos signed URLs de 10 anos.
+const SIGNED_URL_TTL = 10 * 365 * 24 * 60 * 60;
+
+const HEADERS = [
+  "Data Solicitação",
+  "Payment Type",
+  "Fornecedor",
+  "Valor",
+  "NF",
+  "Descrição",
+  "Data do pagamento",
+  "Departamento",
+  "Classe",
+  "Comentários",
+  "Status",
+  "Link da NF",
+  "Endereço de e-mail",
+  "Boleto",
+  "",
+  "Observação",
+  "Empresa",
+  "Moeda",
+];
+
+interface ExportRow {
+  id: string;
+  display_id: string;
+  request_type: string;
+  supplier_name: string;
+  contracted_company: string | null;
+  company: string | null;
+  total_amount: number;
+  currency: string;
+  justification: string | null;
+  requester_email: string;
+  nf_number: string | null;
+  payment_type: string | null;
+  expected_payment_date: string | null;
+  finance_submitted_at: string | null;
+  request_allocations: {
+    percentage: number;
+    cost_centers: { code: string; name: string; department: string } | null;
+  }[];
+}
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** dd/mm/YYYY HH:MM:SS em horário de Brasília (UTC-3 fixo). */
+function formatTimestampBRT(iso: string): string {
+  const d = new Date(new Date(iso).getTime() - 3 * 60 * 60 * 1000);
+  return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
+
+/** Date-only string (yyyy-mm-dd) → dd/mm/yyyy. */
+function formatDateOnly(d: string): string {
+  const [y, m, day] = d.split("-");
+  return `${day}/${m}/${y}`;
+}
+
+/** Valor no formato DD.DDD,DD — sem símbolo de moeda. */
+function formatValor(n: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
+}
+
+function nfColumn(row: ExportRow): string {
+  if (row.nf_number) return row.nf_number;
+  if (row.request_type === "advance") return "Adiantamento";
+  return "Outros";
+}
+
+function departmentColumn(row: ExportRow): string {
+  const allocs = row.request_allocations.filter((a) => a.cost_centers);
+  if (allocs.length === 0) return "";
+  const fmt = (a: ExportRow["request_allocations"][number]) =>
+    `${a.cost_centers!.code}: ${a.cost_centers!.department}: ${a.cost_centers!.name}`;
+  if (allocs.length === 1) return fmt(allocs[0]);
+  return allocs
+    .map((a) => `${Number(a.percentage) % 1 === 0 ? Number(a.percentage) : Number(a.percentage).toFixed(2)}%: ${fmt(a)}`)
+    .join("\n");
+}
+
+/** Folha por mês de pagamento esperado: "04-2026". */
+function sheetKey(expected: string | null): string {
+  if (!expected) return "sem-data";
+  const [y, m] = expected.split("-");
+  return `${m}-${y}`;
+}
+
+export async function GET() {
+  const ctx = await getSessionContext();
+  if (!ctx) {
+    return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
+  }
+  const canFinance = ctx.roles.includes("finance") || ctx.roles.includes("admin");
+  if (!canFinance) {
+    return NextResponse.json({ error: "Apenas o financeiro pode exportar." }, { status: 403 });
+  }
+
+  const admin = supabaseAdmin();
+  const { data, error } = await admin
+    .from("purchase_requests")
+    .select(
+      `id, display_id, request_type, supplier_name, contracted_company, company,
+       total_amount, currency, justification, requester_email, nf_number,
+       payment_type, expected_payment_date, finance_submitted_at,
+       request_allocations(percentage, cost_centers(code, name, department))`,
+    )
+    .eq("status", "awaiting_payment")
+    .order("expected_payment_date", { ascending: true });
+
+  if (error) {
+    console.error("[export] query failed:", error.message);
+    return NextResponse.json({ error: "Erro ao consultar solicitações." }, { status: 500 });
+  }
+
+  const rows = (data as unknown as ExportRow[]) ?? [];
+  if (rows.length === 0) {
+    return NextResponse.json(
+      { error: "Nenhuma solicitação em aguardando pagamento." },
+      { status: 404 },
+    );
+  }
+
+  // Latest nota_fiscal + boleto document per request, with long-lived links.
+  const { data: docs } = await admin
+    .from("request_documents")
+    .select("request_id, doc_type, storage_path, created_at")
+    .in("request_id", rows.map((r) => r.id))
+    .in("doc_type", ["nota_fiscal", "boleto"])
+    .order("created_at", { ascending: true });
+
+  const docPath = new Map<string, string>(); // `${request_id}:${doc_type}` → latest path
+  for (const d of (docs ?? []) as { request_id: string; doc_type: string; storage_path: string }[]) {
+    docPath.set(`${d.request_id}:${d.doc_type}`, d.storage_path);
+  }
+
+  const linkCache = new Map<string, string>();
+  const signedLink = async (path: string | undefined): Promise<string> => {
+    if (!path) return "";
+    const cached = linkCache.get(path);
+    if (cached) return cached;
+    const { data: signed } = await admin.storage
+      .from(DOCUMENTS_BUCKET)
+      .createSignedUrl(path, SIGNED_URL_TTL);
+    const url = signed?.signedUrl ?? "";
+    linkCache.set(path, url);
+    return url;
+  };
+
+  // Group by expected payment month, chronologically ordered sheets.
+  const groups = new Map<string, ExportRow[]>();
+  for (const row of rows) {
+    const key = sheetKey(row.expected_payment_date);
+    const list = groups.get(key) ?? [];
+    list.push(row);
+    groups.set(key, list);
+  }
+  const orderedKeys = [...groups.keys()].sort((a, b) => {
+    if (a === "sem-data") return 1;
+    if (b === "sem-data") return -1;
+    const [ma, ya] = a.split("-").map(Number);
+    const [mb, yb] = b.split("-").map(Number);
+    return ya - yb || ma - mb;
+  });
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "goBuy";
+
+  for (const key of orderedKeys) {
+    const sheet = workbook.addWorksheet(key);
+    const headerRow = sheet.addRow(HEADERS);
+    headerRow.font = { bold: true };
+
+    for (const row of groups.get(key)!) {
+      const nfLink = await signedLink(docPath.get(`${row.id}:nota_fiscal`));
+      const boletoLink = await signedLink(docPath.get(`${row.id}:boleto`));
+
+      sheet.addRow([
+        row.finance_submitted_at ? formatTimestampBRT(row.finance_submitted_at) : "",
+        row.payment_type ?? "",
+        row.contracted_company ?? row.supplier_name,
+        formatValor(Number(row.total_amount)),
+        nfColumn(row),
+        row.justification ?? "",
+        row.expected_payment_date ? formatDateOnly(row.expected_payment_date) : "",
+        departmentColumn(row),
+        null, // Classe
+        null, // Comentários
+        "Lançamento - goBuy",
+        nfLink,
+        row.requester_email,
+        boletoLink,
+        null, // (coluna em branco)
+        null, // Observação
+        row.company ?? "",
+        currencyLabel(row.currency || "BRL"),
+      ]);
+    }
+
+    sheet.columns.forEach((col, i) => {
+      col.width = [20, 22, 30, 14, 16, 40, 16, 40, 10, 14, 18, 50, 30, 50, 6, 14, 16, 22][i] ?? 14;
+    });
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const today = new Date().toISOString().slice(0, 10);
+
+  return new NextResponse(buffer as ArrayBuffer, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="gobuy-pagamentos-${today}.xlsx"`,
+      "Cache-Control": "no-store",
+    },
+  });
+}

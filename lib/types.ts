@@ -1,7 +1,23 @@
 export type RequestType = "products" | "service" | "advance";
-export type RequestStatus = "pending" | "approved" | "rejected" | "cancelled" | "paid";
-export type DocumentType = "nota_fiscal" | "quotation" | "invoice" | "receipt" | "contract" | "other";
+export type RequestStatus =
+  | "pending"
+  | "approved"
+  | "awaiting_finance"
+  | "awaiting_payment"
+  | "rejected"
+  | "cancelled"
+  | "paid";
+export type DocumentType =
+  | "nota_fiscal"
+  | "quotation"
+  | "invoice"
+  | "receipt"
+  | "contract"
+  | "boleto"
+  | "debit_note"
+  | "other";
 export type AppRole = "finance" | "fiscal" | "admin";
+export type PaymentMethod = "pix" | "transfer" | "boleto";
 
 export interface CostCenter {
   id: number;
@@ -53,6 +69,27 @@ export interface PurchaseRequest {
   paid_at: string | null;
   paid_by_email: string | null;
   payment_reference: string | null;
+  contracted_company: string | null;
+  company: string | null;
+  nf_number: string | null;
+  payment_due_date: string | null;
+  expected_payment_date: string | null;
+  payment_method: PaymentMethod | null;
+  pix_key: string | null;
+  bank_name: string | null;
+  bank_agency: string | null;
+  bank_account: string | null;
+  payment_type: string | null;
+  finance_submitted_at: string | null;
+  cost_centers?: Pick<CostCenter, "code" | "name" | "department">;
+  request_allocations?: RequestAllocation[];
+}
+
+export interface RequestAllocation {
+  id?: number;
+  request_id?: string;
+  cost_center_id: number;
+  percentage: number;
   cost_centers?: Pick<CostCenter, "code" | "name" | "department">;
 }
 

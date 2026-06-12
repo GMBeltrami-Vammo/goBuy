@@ -4,6 +4,8 @@ import type { RequestStatus, RequestType } from "@/lib/types";
 const STATUS_VAR: Record<RequestStatus, string> = {
   pending: "pending",
   approved: "approved",
+  awaiting_finance: "awaiting-finance",
+  awaiting_payment: "awaiting-payment",
   rejected: "rejected",
   cancelled: "cancelled",
   paid: "paid",

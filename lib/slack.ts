@@ -212,6 +212,20 @@ export async function notifyRequester(req: RequesterNotification): Promise<void>
     });
   }
 
+  if (approved) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text:
+          `📎 *Próximo passo — pagamento:*\n` +
+          `Anexe a *nota fiscal* e preencha os dados de pagamento (vencimento, Pix/transferência/boleto) ` +
+          `na solicitação para enviá-la ao financeiro. Sem a nota fiscal o pagamento não é processado.\n` +
+          `_Pagamentos ocorrem às terças e sextas._`,
+      },
+    });
+  }
+
   blocks.push({ type: "divider" });
   blocks.push({
     type: "actions",
@@ -234,6 +248,67 @@ export async function notifyRequester(req: RequesterNotification): Promise<void>
     });
   } catch (err) {
     console.error("[slack] notifyRequester failed:", err);
+  }
+}
+
+// ─── Finance notification (payment info submitted, awaiting validation) ───────
+export interface FinancePendingNotification {
+  displayId: string;
+  supplierName: string;
+  totalAmount: number;
+  requesterEmail: string;
+  expectedPaymentDate: string | null;
+}
+
+export async function notifyFinancePending(req: FinancePendingNotification): Promise<void> {
+  if (!process.env.SLACK_BOT_TOKEN) return;
+
+  const blocks: object[] = [
+    {
+      type: "header",
+      text: { type: "plain_text", text: `💰  Aguardando financeiro · ${req.displayId}`, emoji: true },
+    },
+    {
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: `*Fornecedor:*\n${req.supplierName}` },
+        { type: "mrkdwn", text: `*Valor:*\n${brl(req.totalAmount)}` },
+        { type: "mrkdwn", text: `*Solicitante:*\n${req.requesterEmail}` },
+        {
+          type: "mrkdwn",
+          text: `*Previsão de pagamento:*\n${req.expectedPaymentDate ?? "—"}`,
+        },
+      ],
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "Documentos e dados de pagamento enviados. Valide para mover a *Aguardando pagamento*.",
+      },
+    },
+    { type: "divider" },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "🔗  Validar no goBuy", emoji: true },
+          url: `${APP_URL}/finance?r=${encodeURIComponent(req.displayId)}`,
+          action_id: "view_details_finance",
+        },
+      ],
+    },
+  ];
+
+  try {
+    await slackPost("chat.postMessage", {
+      channel: await resolveDmChannel(TEST_RECIPIENT_USER_ID),
+      text: `Solicitação ${req.displayId} aguardando validação do financeiro`,
+      blocks,
+    });
+  } catch (err) {
+    console.error("[slack] notifyFinancePending failed:", err);
   }
 }
 

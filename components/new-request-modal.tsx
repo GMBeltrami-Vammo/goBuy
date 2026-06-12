@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { formatBRL } from "@/lib/format";
+import { CURRENCIES, formatAmount } from "@/lib/payment";
 import type { CostCenter, RequestType } from "@/lib/types";
 
 interface ItemDraft {
@@ -10,6 +11,11 @@ interface ItemDraft {
   quantity: string;
   unit: string;
   unit_value: string;
+}
+
+interface AllocationDraft {
+  ccId: string;
+  percentage: string;
 }
 
 const EMPTY_ITEM: ItemDraft = { description: "", quantity: "1", unit: "un", unit_value: "" };
@@ -40,8 +46,15 @@ export function NewRequestModal({
   const [advancePurpose, setAdvancePurpose] = useState("Viagem / deslocamento");
   const [advanceUseDate, setAdvanceUseDate] = useState("");
   const [advanceDeadline, setAdvanceDeadline] = useState("");
+  const [currency, setCurrency] = useState("BRL");
+  const [contractedCompany, setContractedCompany] = useState("");
+  const [company, setCompany] = useState("Vammo");
+  const [splitDepts, setSplitDepts] = useState(false);
+  const [allocations, setAllocations] = useState<AllocationDraft[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+
+  const fmt = (n: number) => (currency === "BRL" ? formatBRL(n) : formatAmount(n, currency));
 
   const grouped = useMemo(() => {
     const map = new Map<string, CostCenter[]>();
@@ -78,6 +91,11 @@ export function NewRequestModal({
   const setItem = (i: number, patch: Partial<ItemDraft>) =>
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
 
+  const allocTotal = useMemo(
+    () => allocations.reduce((s, a) => s + (parseFloat(a.percentage) || 0), 0),
+    [allocations],
+  );
+
   const submit = async () => {
     setError(null);
     if (!supplier.trim()) return setError(isAdvance ? "Informe o beneficiário." : "Informe o fornecedor.");
@@ -85,6 +103,12 @@ export function NewRequestModal({
     if (type === "products" && items.every((i) => !i.description.trim()))
       return setError("Adicione ao menos um item.");
     if (total <= 0) return setError("O valor total deve ser maior que zero.");
+    if (splitDepts) {
+      const valid = allocations.filter((a) => a.ccId && (parseFloat(a.percentage) || 0) > 0);
+      if (valid.length < 2) return setError("Rateio exige ao menos dois departamentos.");
+      if (Math.abs(allocTotal - 100) > 0.01)
+        return setError(`O rateio deve somar 100% (atual: ${allocTotal.toFixed(2).replace(".", ",")}%).`);
+    }
 
     const payload: Record<string, unknown> = {
       request_type: type,
@@ -93,7 +117,15 @@ export function NewRequestModal({
       cost_center_id: Number(ccId),
       justification: justification.trim() || null,
       notes: notes.trim() || null,
+      currency,
+      contracted_company: contractedCompany.trim() || null,
+      company: company.trim() || null,
     };
+    if (splitDepts) {
+      payload.allocations = allocations
+        .filter((a) => a.ccId && (parseFloat(a.percentage) || 0) > 0)
+        .map((a) => ({ cost_center_id: Number(a.ccId), percentage: parseFloat(a.percentage) }));
+    }
 
     if (type === "products") {
       payload.items = items
@@ -229,6 +261,31 @@ export function NewRequestModal({
                 className="input bg-[var(--surface-2)] text-[var(--muted)]"
               />
             </Field>
+            <Field label="Empresa contratada">
+              <input
+                value={contractedCompany}
+                onChange={(e) => setContractedCompany(e.target.value)}
+                placeholder="Razão social da contratada (se diferente)"
+                className="input"
+                maxLength={200}
+              />
+            </Field>
+            <Field label="Empresa">
+              <input
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                placeholder="Entidade pagadora"
+                className="input"
+                maxLength={200}
+              />
+            </Field>
+            <Field label="Moeda">
+              <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="input">
+                {CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>{c.label}</option>
+                ))}
+              </select>
+            </Field>
             <Field label="Justificativa" full>
               <textarea
                 value={justification}
@@ -238,6 +295,92 @@ export function NewRequestModal({
                 maxLength={4000}
               />
             </Field>
+          </div>
+
+          {/* Rateio entre departamentos */}
+          <div className="rounded-lg border border-[var(--line)] px-4 py-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={splitDepts}
+                onChange={(e) => {
+                  setSplitDepts(e.target.checked);
+                  if (e.target.checked && allocations.length === 0) {
+                    setAllocations([
+                      { ccId, percentage: "50" },
+                      { ccId: "", percentage: "50" },
+                    ]);
+                  }
+                }}
+                className="h-4 w-4 accent-[var(--accent)]"
+              />
+              <span className="font-medium">Rateio entre múltiplos departamentos</span>
+            </label>
+            {splitDepts && (
+              <div className="mt-3 space-y-2">
+                {allocations.map((a, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <select
+                      value={a.ccId}
+                      onChange={(e) =>
+                        setAllocations((prev) =>
+                          prev.map((x, idx) => (idx === i ? { ...x, ccId: e.target.value } : x)),
+                        )
+                      }
+                      className="input flex-1 text-sm"
+                    >
+                      <option value="">Centro de custo…</option>
+                      {grouped.map(([dept, ccs]) => (
+                        <optgroup key={dept} label={dept}>
+                          {ccs.map((cc) => (
+                            <option key={cc.id} value={cc.id}>
+                              {cc.code} — {cc.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      min="0.01"
+                      max="100"
+                      step="0.01"
+                      value={a.percentage}
+                      onChange={(e) =>
+                        setAllocations((prev) =>
+                          prev.map((x, idx) => (idx === i ? { ...x, percentage: e.target.value } : x)),
+                        )
+                      }
+                      className="input w-24 text-right text-sm"
+                    />
+                    <span className="text-sm text-[var(--muted)]">%</span>
+                    <button
+                      onClick={() => setAllocations((prev) => prev.filter((_, idx) => idx !== i))}
+                      disabled={allocations.length <= 2}
+                      className="text-[var(--faint)] hover:text-[var(--rejected)] disabled:opacity-30"
+                      aria-label="Remover linha de rateio"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between">
+                  <button
+                    onClick={() => setAllocations((prev) => [...prev, { ccId: "", percentage: "" }])}
+                    className="text-sm font-semibold text-[var(--accent)] hover:underline"
+                  >
+                    + Adicionar departamento
+                  </button>
+                  <p
+                    className={`v-tabular text-sm font-semibold ${
+                      Math.abs(allocTotal - 100) > 0.01 ? "text-[var(--rejected)]" : "text-[var(--approved)]"
+                    }`}
+                  >
+                    {allocTotal.toFixed(2).replace(".", ",")}% / 100%
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Products */}
@@ -301,7 +444,7 @@ export function NewRequestModal({
                           />
                         </td>
                         <td className="px-2 py-1 text-right v-tabular text-xs font-semibold">
-                          {formatBRL(line)}
+                          {fmt(line)}
                         </td>
                         <td className="pr-2 text-center">
                           <button
@@ -327,7 +470,7 @@ export function NewRequestModal({
                 </button>
                 <p className="v-tabular text-sm">
                   <span className="text-[var(--muted)]">Total </span>
-                  <span className="font-bold">{formatBRL(itemsTotal)}</span>
+                  <span className="font-bold">{fmt(itemsTotal)}</span>
                 </p>
               </div>
             </div>
@@ -336,7 +479,7 @@ export function NewRequestModal({
           {/* Service */}
           {type === "service" && (
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Valor do contrato (R$)">
+              <Field label={`Valor do contrato (${currency})`}>
                 <input
                   type="number"
                   min="0"
@@ -376,7 +519,7 @@ export function NewRequestModal({
                 validação adicional do Financeiro.
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Valor (R$)">
+                <Field label={`Valor (${currency})`}>
                   <input
                     type="number"
                     min="0"
@@ -430,7 +573,7 @@ export function NewRequestModal({
         <div className="flex items-center justify-between border-t border-[var(--line)] px-6 py-4">
           <p className="v-tabular text-sm">
             <span className="text-[var(--muted)]">Total da solicitação </span>
-            <span className="text-lg font-bold">{formatBRL(total)}</span>
+            <span className="text-lg font-bold">{fmt(total)}</span>
           </p>
           <div className="flex gap-2">
             <button

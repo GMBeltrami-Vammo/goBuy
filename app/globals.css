@@ -39,6 +39,10 @@
   --paid-soft: rgba(11, 161, 246, 0.12);
   --cancelled: #8d8d8d;
   --cancelled-soft: rgba(141, 141, 141, 0.16);
+  --awaiting-finance: #8a5fc4;        /* purple: finance validation step */
+  --awaiting-finance-soft: rgba(138, 95, 196, 0.14);
+  --awaiting-payment: #b56a1f;        /* amber-orange: queued for payment */
+  --awaiting-payment-soft: rgba(214, 138, 53, 0.16);
 
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 6px 20px -10px rgba(0, 0, 0, 0.12);
 }
@@ -70,6 +74,10 @@
   --paid-soft: rgba(11, 161, 246, 0.16);
   --cancelled: #8d8d8d;
   --cancelled-soft: rgba(141, 141, 141, 0.2);
+  --awaiting-finance: #b794e8;
+  --awaiting-finance-soft: rgba(138, 95, 196, 0.2);
+  --awaiting-payment: #d68a35;
+  --awaiting-payment-soft: rgba(214, 138, 53, 0.18);
 
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px -12px rgba(0, 0, 0, 0.7);
 }

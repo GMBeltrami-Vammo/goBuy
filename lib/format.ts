@@ -16,6 +16,8 @@ export const formatDateTime = (iso: string) =>
 export const STATUS_LABEL: Record<string, string> = {
   pending: "Pendente",
   approved: "Aprovada",
+  awaiting_finance: "Aguardando financeiro",
+  awaiting_payment: "Aguardando pagamento",
   rejected: "Recusada",
   cancelled: "Cancelada",
   paid: "Paga",
@@ -33,6 +35,8 @@ export const DOC_TYPE_LABEL: Record<string, string> = {
   invoice: "Fatura",
   receipt: "Recibo",
   contract: "Contrato",
+  boleto: "Boleto",
+  debit_note: "Nota de débito",
   other: "Outro",
 };
 
@@ -44,4 +48,6 @@ export const EVENT_LABEL: Record<string, string> = {
   paid: "Pagamento realizado",
   document_added: "Documento anexado",
   notification_queued: "Notificação ao head registrada",
+  payment_info_submitted: "Dados de pagamento enviados",
+  finance_confirmed: "Documentos validados pelo financeiro",
 };
