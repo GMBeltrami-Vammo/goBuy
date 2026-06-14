@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -14,7 +14,8 @@ import {
 } from "recharts";
 
 import { StatusBadge } from "@/components/status-badge";
-import { formatBRL, formatDate } from "@/lib/format";
+import { brtYmd, formatBRL, formatDate } from "@/lib/format";
+import { supabaseBrowser } from "@/lib/supabase/client";
 import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
 import type { CostCenter, PurchaseRequest } from "@/lib/types";
 
@@ -31,6 +32,9 @@ export function BudgetDetailModal({
   budget,
   requests,
   monthStart,
+  supabaseToken,
+  canEditBudget = false,
+  onBudgetSaved,
   onClose,
   onOpenRequest,
 }: {
@@ -38,13 +42,58 @@ export function BudgetDetailModal({
   budget: number;
   /** All requests of this cost center (any month/status). */
   requests: PurchaseRequest[];
-  /** yyyy-mm-dd of the first day of the current month. */
+  /** yyyy-mm-dd of the first day of the selected month. */
   monthStart: string;
+  supabaseToken?: string;
+  /** Show the inline budget editor (head of this CC, or finance/admin). */
+  canEditBudget?: boolean;
+  onBudgetSaved?: (amount: number) => void;
   onClose: () => void;
   onOpenRequest: (r: PurchaseRequest) => void;
 }) {
   useBodyScrollLock();
   const monthKey = monthStart.slice(0, 7);
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const startEdit = () => {
+    setDraft(String(budget));
+    setSaveError(null);
+    setEditing(true);
+  };
+
+  const saveBudget = async () => {
+    const raw = Number(draft);
+    if (!Number.isFinite(raw) || raw < 0) {
+      setSaveError("Informe um valor maior ou igual a zero.");
+      return;
+    }
+    if (raw > 1_000_000_000) {
+      setSaveError("Valor acima do limite permitido (1 bilhão).");
+      return;
+    }
+    // Round once so the optimistic UI matches exactly what the RPC persists
+    // (numeric(14,2)).
+    const amount = Math.round(raw * 100) / 100;
+    setSaving(true);
+    setSaveError(null);
+    const supabase = supabaseBrowser(supabaseToken ?? "");
+    const { error } = await supabase.rpc("set_cost_center_budget", {
+      p_cost_center_id: center.id,
+      p_period_month: monthStart,
+      p_amount: amount,
+    });
+    setSaving(false);
+    if (error) {
+      setSaveError("Não foi possível salvar o budget. Tente novamente.");
+      return;
+    }
+    setEditing(false);
+    onBudgetSaved?.(amount);
+  };
 
   const monthCommitted = useMemo(
     () =>
@@ -52,7 +101,7 @@ export function BudgetDetailModal({
         (r) =>
           r.cost_center_id === center.id &&
           COMMITTED_STATUSES.has(r.status) &&
-          r.created_at.slice(0, 7) === monthKey,
+          brtYmd(r.created_at).slice(0, 7) === monthKey,
       ),
     [requests, center.id, monthKey],
   );
@@ -63,7 +112,7 @@ export function BudgetDetailModal({
         (r) =>
           r.cost_center_id === center.id &&
           r.status === "pending" &&
-          r.created_at.slice(0, 7) === monthKey,
+          brtYmd(r.created_at).slice(0, 7) === monthKey,
       ),
     [requests, center.id, monthKey],
   );
@@ -83,7 +132,7 @@ export function BudgetDetailModal({
 
     const perDay = new Map<number, number>();
     for (const r of monthCommitted) {
-      const day = Number(r.created_at.slice(8, 10));
+      const day = Number(brtYmd(r.created_at).slice(8, 10));
       perDay.set(day, (perDay.get(day) ?? 0) + Number(r.total_amount));
     }
 
@@ -131,6 +180,68 @@ export function BudgetDetailModal({
             <MiniStat label="Disponível" value={formatBRL(available)} tone="approved" />
             <MiniStat label="Pendente de aprovação" value={formatBRL(pendingTotal)} />
           </div>
+
+          {/* Budget editor */}
+          {canEditBudget && (
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-4 py-3">
+              {editing ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-[var(--muted)]">Budget de {monthLabel}</span>
+                    <span className="text-sm text-[var(--faint)]">R$</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      autoFocus
+                      aria-label={`Budget de ${monthLabel} em reais`}
+                      aria-describedby={saveError ? "budget-edit-error" : undefined}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void saveBudget();
+                        if (e.key === "Escape") setEditing(false);
+                      }}
+                      className="w-40 rounded-lg border border-[var(--line-strong)] bg-[var(--bg)] px-3 py-1.5 text-right text-sm text-[var(--ink)] outline-none transition focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--accent-soft)]"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={saveBudget}
+                      disabled={saving}
+                      className="rounded-lg bg-[var(--accent)] px-4 py-1.5 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-60"
+                    >
+                      {saving ? "Salvando…" : "Salvar"}
+                    </button>
+                    <button
+                      onClick={() => setEditing(false)}
+                      disabled={saving}
+                      className="rounded-lg border border-[var(--line-strong)] px-4 py-1.5 text-sm font-medium hover:bg-[var(--surface)]"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                  {saveError && (
+                    <span id="budget-edit-error" role="alert" className="w-full text-xs text-[var(--rejected)]">
+                      {saveError}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="text-sm text-[var(--muted)]">
+                    Ajustar o budget deste centro de custo em <span className="capitalize">{monthLabel}</span>.
+                  </span>
+                  <button
+                    onClick={startEdit}
+                    className="ml-auto rounded-lg border border-[var(--accent)] px-4 py-1.5 text-sm font-semibold text-[var(--accent)] transition hover:bg-[var(--accent-soft)]"
+                  >
+                    Editar budget
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Daily consumption chart */}
           <section>

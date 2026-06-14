@@ -373,7 +373,7 @@ export function NewRequestModal({
                           )
                         }
                         aria-label={`Percentual do rateio ${i + 1}`}
-                        className={`w-14 shrink-0 rounded-lg border px-2 py-2 text-right text-sm outline-none transition focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--accent-soft)] ${
+                        className={`w-28 shrink-0 rounded-lg border px-2 py-2 text-right text-sm outline-none transition focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--accent-soft)] ${
                           isLast
                             ? "border-[var(--line)] bg-[var(--surface-2)] text-[var(--muted)]"
                             : "border-[var(--line-strong)] bg-[var(--bg)] text-[var(--ink)]"

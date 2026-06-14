@@ -13,6 +13,20 @@ export const formatDateTime = (iso: string) =>
     minute: "2-digit",
   });
 
+/**
+ * A timestamp's calendar date in São Paulo time, as "yyyy-mm-dd".
+ * Budget months/days are local (BRT) calendar buckets, so spend created late in
+ * the evening must be classified by its BRT date — not the raw UTC slice, which
+ * would roll the last ~3h of a month into the next month.
+ */
+export const brtYmd = (iso: string): string =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
+
 export const STATUS_LABEL: Record<string, string> = {
   pending: "Pendente",
   approved: "Aprovada",

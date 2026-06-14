@@ -22,7 +22,12 @@ export const getSessionContext = cache(async (): Promise<SessionContext | null> 
   const admin = supabaseAdmin();
 
   const [headRes, rolesRes] = await Promise.all([
-    admin.from("cost_center_heads").select("cost_center_id").eq("head_email", email),
+    // Only active cost centers — deactivated ones must not surface to the head.
+    admin
+      .from("cost_center_heads")
+      .select("cost_center_id, cost_centers!inner(active)")
+      .eq("head_email", email)
+      .eq("cost_centers.active", true),
     admin.from("user_roles").select("role").eq("user_email", email),
   ]);
 

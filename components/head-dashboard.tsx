@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { RequestDrawer } from "@/components/request-drawer";
 import { StatusBadge, TypeBadge } from "@/components/status-badge";
-import { formatBRL, formatDate } from "@/lib/format";
+import { brtYmd, formatBRL, formatDate } from "@/lib/format";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { CostCenter, CostCenterBudget, PurchaseRequest } from "@/lib/types";
 
@@ -48,6 +48,9 @@ export function HeadDashboard({
     const d = new Date();
     return new Date(Date.UTC(d.getFullYear(), d.getMonth(), 1)).toISOString().slice(0, 10);
   }, []);
+  // Heads may review/plan other months (e.g. next month's requests), so the
+  // dashboard is scoped to a selectable reference month.
+  const [selectedMonth, setSelectedMonth] = useState(monthStart);
 
   const load = useCallback(async () => {
     const supabase = supabaseBrowser(supabaseToken);
@@ -56,8 +59,7 @@ export function HeadDashboard({
       supabase
         .from("cost_center_budgets")
         .select("id, cost_center_id, period_month, amount, source")
-        .in("cost_center_id", centerIds)
-        .eq("period_month", monthStart),
+        .in("cost_center_id", centerIds),
       supabase
         .from("purchase_requests")
         .select("*, cost_centers(code, name, department)")
@@ -68,7 +70,7 @@ export function HeadDashboard({
     setCenters((ccRes.data as unknown as CostCenter[]) ?? []);
     setBudgets((budgetRes.data as unknown as CostCenterBudget[]) ?? []);
     setRequests((reqRes.data as unknown as PurchaseRequest[]) ?? []);
-  }, [centerIds, monthStart, supabaseToken]);
+  }, [centerIds, supabaseToken]);
 
   useEffect(() => {
     void load();
@@ -84,23 +86,33 @@ export function HeadDashboard({
     }
   }, [autoOpenDisplayId, requests]);
 
-  // Committed this month = anything approved onwards (incl. awaiting finance /
-  // payment) created in the month.
+  // Months that have a budget for these centers, plus the current month, sorted
+  // descending so the latest is first in the picker.
+  const availableMonths = useMemo(() => {
+    const set = new Set<string>(budgets.map((b) => b.period_month.slice(0, 10)));
+    set.add(monthStart);
+    return [...set].sort((a, b) => b.localeCompare(a));
+  }, [budgets, monthStart]);
+
+  // Committed in the selected month = anything approved onwards (incl. awaiting
+  // finance / payment) created in that month.
   const committedByCenter = useMemo(() => {
     const map = new Map<number, number>();
     for (const r of requests ?? []) {
       if (!COMMITTED_STATUSES.has(r.status)) continue;
-      if (r.created_at.slice(0, 7) !== monthStart.slice(0, 7)) continue;
+      if (brtYmd(r.created_at).slice(0, 7) !== selectedMonth.slice(0, 7)) continue;
       map.set(r.cost_center_id, (map.get(r.cost_center_id) ?? 0) + Number(r.total_amount));
     }
     return map;
-  }, [requests, monthStart]);
+  }, [requests, selectedMonth]);
 
   const budgetByCenter = useMemo(() => {
     const map = new Map<number, number>();
-    for (const b of budgets) map.set(b.cost_center_id, Number(b.amount));
+    for (const b of budgets) {
+      if (b.period_month.slice(0, 10) === selectedMonth) map.set(b.cost_center_id, Number(b.amount));
+    }
     return map;
-  }, [budgets]);
+  }, [budgets, selectedMonth]);
 
   const totals = useMemo(() => {
     const budget = centers.reduce((a, c) => a + (budgetByCenter.get(c.id) ?? 0), 0);
@@ -130,8 +142,29 @@ export function HeadDashboard({
     window.setTimeout(() => setToast(null), 4500);
   };
 
-  const monthLabel = new Date().toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
-  const isMock = budgets.some((b) => b.source === "mock");
+  const monthName = (iso: string) =>
+    new Date(`${iso}T12:00:00`).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  const monthLabel = monthName(selectedMonth);
+  const isMock = budgets.some((b) => b.period_month.slice(0, 10) === selectedMonth && b.source === "mock");
+
+  // Apply a budget edit locally (optimistic) so the donuts/totals update without
+  // a full reload.
+  const applyBudgetEdit = useCallback((ccId: number, period: string, amount: number) => {
+    setBudgets((prev) => {
+      const idx = prev.findIndex(
+        (b) => b.cost_center_id === ccId && b.period_month.slice(0, 10) === period,
+      );
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = { ...next[idx], amount, source: "head" };
+        return next;
+      }
+      return [
+        ...prev,
+        { id: -Date.now(), cost_center_id: ccId, period_month: period, amount, source: "head" },
+      ];
+    });
+  }, []);
 
   return (
     <div>
@@ -157,10 +190,37 @@ export function HeadDashboard({
       )}
 
       {/* Aggregate budget */}
-      <div className="reveal reveal-2 mt-7 grid grid-cols-3 gap-3">
-        <Stat label="Budget do mês" value={formatBRL(totals.budget)} />
-        <Stat label="Comprometido" value={formatBRL(totals.committed)} tone="pending" />
-        <Stat label="Disponível" value={formatBRL(totals.available)} tone="approved" />
+      <div className="reveal reveal-2 mt-7">
+        <div className="mb-3 flex items-center gap-2">
+          <label htmlFor="head-month" className="text-xs font-medium text-[var(--muted)]">
+            Mês de referência
+          </label>
+          <select
+            id="head-month"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="rounded-lg border border-[var(--line-strong)] bg-[var(--bg)] px-3 py-1.5 text-sm font-medium capitalize text-[var(--ink)] outline-none transition focus:border-[var(--accent)]"
+          >
+            {availableMonths.map((m) => (
+              <option key={m} value={m}>
+                {monthName(m)}
+              </option>
+            ))}
+          </select>
+          {selectedMonth !== monthStart && (
+            <button
+              onClick={() => setSelectedMonth(monthStart)}
+              className="text-xs font-semibold text-[var(--accent)] hover:underline"
+            >
+              Voltar ao mês atual
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <Stat label="Budget do mês" value={formatBRL(totals.budget)} />
+          <Stat label="Comprometido" value={formatBRL(totals.committed)} tone="pending" />
+          <Stat label="Disponível" value={formatBRL(totals.available)} tone="approved" />
+        </div>
       </div>
       {isMock && (
         <p className="mt-2 v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">
@@ -308,7 +368,13 @@ export function HeadDashboard({
           center={detailCenter}
           budget={budgetByCenter.get(detailCenter.id) ?? 0}
           requests={requests ?? []}
-          monthStart={monthStart}
+          monthStart={selectedMonth}
+          supabaseToken={supabaseToken}
+          canEditBudget
+          onBudgetSaved={(amount) => {
+            applyBudgetEdit(detailCenter.id, selectedMonth, amount);
+            flash(`Budget de ${detailCenter.code} atualizado para ${formatBRL(amount)}.`);
+          }}
           onClose={() => setDetailCenter(null)}
           onOpenRequest={(r) => {
             setDetailCenter(null);
