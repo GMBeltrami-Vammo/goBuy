@@ -98,14 +98,14 @@ export async function POST(request: Request) {
     );
   }
 
-  // Gate doc types by lifecycle: pending accepts only cotações/contratos;
-  // NF, fatura, recibo, nota de débito e boleto exigem aprovação prévia.
+  // Gate doc types by lifecycle: pending accepts cotações/contratos/boleto;
+  // NF, fatura, recibo e nota de débito exigem aprovação prévia.
   if (!allowedDocTypes(req.status as RequestStatus).includes(docType as DocumentType)) {
     return NextResponse.json(
       {
         error:
           req.status === "pending"
-            ? "Enquanto pendente, apenas cotações e contratos podem ser anexados."
+            ? "Enquanto pendente, apenas cotações, contratos e boleto podem ser anexados."
             : "Tipo de documento não permitido neste status.",
       },
       { status: 409 },

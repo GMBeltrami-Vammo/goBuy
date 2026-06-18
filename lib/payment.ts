@@ -44,15 +44,14 @@ export const formatAmount = (n: number, currency = "BRL"): string =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(n);
 
 // ─── Document-type gating by status ───────────────────────────────────────────
-// Enquanto pendente: apenas cotações e contratos.
-// Aprovada em diante: nota fiscal, fatura, recibo, nota de débito, boleto, outros.
-const PRE_APPROVAL_DOCS: DocumentType[] = ["quotation", "contract"];
+// Desde a submissão: cotações, contratos e boleto.
+// Aprovada em diante: também nota fiscal, fatura, recibo, nota de débito, outros.
+const PRE_APPROVAL_DOCS: DocumentType[] = ["quotation", "contract", "boleto"];
 const POST_APPROVAL_DOCS: DocumentType[] = [
   "nota_fiscal",
   "invoice",
   "receipt",
   "debit_note",
-  "boleto",
   "other",
 ];
 

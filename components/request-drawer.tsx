@@ -403,7 +403,7 @@ export function RequestDrawer({
                 Nenhum documento.{" "}
                 {canUpload &&
                   (request.status === "pending"
-                    ? "Enquanto pendente, anexe cotações e contratos."
+                    ? "Enquanto pendente, anexe cotações, contratos ou boleto."
                     : "Anexe a nota fiscal e demais documentos abaixo.")}
               </p>
             ) : (
@@ -458,7 +458,7 @@ export function RequestDrawer({
                   {busy
                     ? "Enviando…"
                     : request.status === "pending"
-                      ? "Anexar PDF (cotação, contrato)"
+                      ? "Anexar PDF (cotação, contrato, boleto)"
                       : "Anexar PDF (NF, boleto…)"}
                 </button>
               </div>
