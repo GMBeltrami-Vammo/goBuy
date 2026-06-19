@@ -18,6 +18,10 @@ const BudgetDetailModal = dynamic(
   () => import("@/components/budget-detail-modal").then((m) => m.BudgetDetailModal),
   { ssr: false },
 );
+const HeadAggregateChart = dynamic(
+  () => import("@/components/head-aggregate-chart").then((m) => m.HeadAggregateChart),
+  { ssr: false, loading: () => <div className="h-48 animate-pulse rounded-xl bg-[var(--surface-2)]" /> },
+);
 
 /** Statuses that consume budget: aprovada em diante (exceto recusada/cancelada). */
 const COMMITTED_STATUSES = new Set(["approved", "awaiting_finance", "awaiting_payment", "paid"]);
@@ -166,24 +170,15 @@ export function HeadDashboard({
   const monthLabel = monthName(selectedMonth);
   const isMock = budgets.some((b) => b.period_month.slice(0, 10) === selectedMonth && b.source === "mock");
 
-  // Apply a budget edit locally (optimistic) so the donuts/totals update without
-  // a full reload.
-  const applyBudgetEdit = useCallback((ccId: number, period: string, amount: number) => {
-    setBudgets((prev) => {
-      const idx = prev.findIndex(
-        (b) => b.cost_center_id === ccId && b.period_month.slice(0, 10) === period,
-      );
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = { ...next[idx], amount, source: "head" };
-        return next;
-      }
-      return [
-        ...prev,
-        { id: -Date.now(), cost_center_id: ccId, period_month: period, amount, source: "head" },
-      ];
-    });
-  }, []);
+  const aggregateData = useMemo(
+    () =>
+      centers.map((cc) => ({
+        cc,
+        committed: committedByCenter.get(cc.id) ?? 0,
+        budget: budgetByCenter.get(cc.id) ?? 0,
+      })),
+    [centers, committedByCenter, budgetByCenter],
+  );
 
   return (
     <div>
@@ -247,9 +242,10 @@ export function HeadDashboard({
         </p>
       )}
 
-      {/* Per-center charts */}
-      <div className="reveal reveal-3 mt-6">
-        <div className="mb-3 flex items-center justify-between gap-3">
+      {/* Aggregate chart + per-CC drill-down */}
+      <div className="reveal reveal-3 mt-6 space-y-4">
+        {/* Toggle */}
+        <div className="flex items-center justify-between gap-3">
           <p className="v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">
             Por centro de custo — {monthLabel}
           </p>
@@ -270,7 +266,15 @@ export function HeadDashboard({
           </div>
         </div>
 
-        {viewMode === "pizza" ? (
+        {/* Consolidated chart — always shown, pizza or bar */}
+        <HeadAggregateChart
+          data={aggregateData}
+          viewMode={viewMode}
+          onOpenCenter={setDetailCenter}
+        />
+
+        {/* Per-CC donut cards — drill-down, only in pizza mode */}
+        {viewMode === "pizza" && (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {centers.map((cc) => {
               const budget = budgetByCenter.get(cc.id) ?? 0;
@@ -306,66 +310,6 @@ export function HeadDashboard({
                       Detalhes →
                     </p>
                   </div>
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {centers.map((cc) => {
-              const budget = budgetByCenter.get(cc.id) ?? 0;
-              const consumed = committedByCenter.get(cc.id) ?? 0;
-              const pendingCount = pendingByCenter.get(cc.id) ?? 0;
-              const pct = budget > 0 ? Math.round((consumed / budget) * 100) : 0;
-              const overBudget = budget > 0 && consumed > budget;
-              return (
-                <button
-                  key={cc.id}
-                  onClick={() => setDetailCenter(cc)}
-                  className="flex w-full items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3 text-left shadow-[var(--shadow)] transition hover:border-[var(--accent)]"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="v-tabular text-[10px] uppercase tracking-widest text-[var(--faint)]">
-                          {cc.code}
-                        </p>
-                        <p className="truncate text-sm font-semibold" title={cc.name}>
-                          {cc.name}
-                        </p>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p
-                          className="v-tabular text-sm font-bold"
-                          style={{ color: overBudget ? "var(--rejected)" : "var(--ink)" }}
-                        >
-                          {budget > 0 ? `${pct}%` : formatBRL(consumed)}
-                        </p>
-                        <p className="v-tabular text-[11px] text-[var(--muted)]">
-                          {formatBRL(consumed)}
-                          {budget > 0 && <> / {formatBRL(budget)}</>}
-                        </p>
-                      </div>
-                    </div>
-                    {budget > 0 && (
-                      <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${Math.min(100, pct)}%`,
-                            backgroundColor: overBudget
-                              ? "var(--rejected)"
-                              : "var(--accent)",
-                          }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                  {pendingCount > 0 && (
-                    <span className="shrink-0 rounded-full bg-[var(--pending-soft)] px-2 py-0.5 v-tabular text-[10px] font-bold text-[var(--pending)]">
-                      {pendingCount}
-                    </span>
-                  )}
                 </button>
               );
             })}
@@ -481,12 +425,6 @@ export function HeadDashboard({
           budget={budgetByCenter.get(detailCenter.id) ?? 0}
           requests={requests ?? []}
           monthStart={selectedMonth}
-          supabaseToken={supabaseToken}
-          canEditBudget
-          onBudgetSaved={(amount) => {
-            applyBudgetEdit(detailCenter.id, selectedMonth, amount);
-            flash(`Budget de ${detailCenter.code} atualizado para ${formatBRL(amount)}.`);
-          }}
           onClose={() => setDetailCenter(null)}
           onOpenRequest={(r) => {
             setDetailCenter(null);
