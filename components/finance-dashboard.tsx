@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { RequestDrawer } from "@/components/request-drawer";
 import { StatusBadge, TypeBadge } from "@/components/status-badge";
-import { formatBRL, formatDate, formatDateOnlyBR, STATUS_LABEL, TYPE_LABEL } from "@/lib/format";
+import { brtYmd, formatBRL, formatDate, formatDateOnlyBR, STATUS_LABEL, TYPE_LABEL } from "@/lib/format";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { PurchaseRequest } from "@/lib/types";
 
@@ -61,7 +61,19 @@ export function FinanceDashboard({
     [requests],
   );
 
+  // Parse dd/mm/yyyy → yyyy-mm-dd. Returns "" for incomplete or invalid input.
+  const parseDDMMYYYY = (s: string): string => {
+    const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!m) return "";
+    const [, dd, mm, yyyy] = m;
+    const d = new Date(`${yyyy}-${mm}-${dd}`);
+    if (isNaN(d.getTime())) return "";
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
   const filtered = useMemo(() => {
+    const fromYMD = parseDDMMYYYY(dateFrom);
+    const toYMD = parseDDMMYYYY(dateTo);
     let list = requests ?? [];
     if (statusFilter !== "all") list = list.filter((r) => r.status === statusFilter);
     if (typeFilter !== "all") list = list.filter((r) => r.request_type === typeFilter);
@@ -75,20 +87,16 @@ export function FinanceDashboard({
           r.requester_email.toLowerCase().includes(q),
       );
     }
-    if (dateFrom) {
+    if (fromYMD) {
       list = list.filter((r) => {
-        const d = dateField === "created"
-          ? r.created_at.slice(0, 10)
-          : r.expected_payment_date ?? "";
-        return d >= dateFrom;
+        const d = dateField === "created" ? brtYmd(r.created_at) : r.expected_payment_date ?? "";
+        return !!d && d >= fromYMD;
       });
     }
-    if (dateTo) {
+    if (toYMD) {
       list = list.filter((r) => {
-        const d = dateField === "created"
-          ? r.created_at.slice(0, 10)
-          : r.expected_payment_date ?? "";
-        return !!d && d <= dateTo;
+        const d = dateField === "created" ? brtYmd(r.created_at) : r.expected_payment_date ?? "";
+        return !!d && d <= toYMD;
       });
     }
     return list;
@@ -354,19 +362,37 @@ export function FinanceDashboard({
               ))}
             </div>
             <input
-              type="date"
+              type="text"
+              inputMode="numeric"
+              maxLength={10}
+              placeholder="dd/mm/yyyy"
               value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
-              title="De"
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
+                let v = digits;
+                if (digits.length > 4) v = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+                else if (digits.length > 2) v = `${digits.slice(0, 2)}/${digits.slice(2)}`;
+                setDateFrom(v);
+              }}
+              className="w-24 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
+              aria-label="De (dd/mm/yyyy)"
             />
             <span className="text-[11px] text-[var(--faint)]">—</span>
             <input
-              type="date"
+              type="text"
+              inputMode="numeric"
+              maxLength={10}
+              placeholder="dd/mm/yyyy"
               value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
-              title="Até"
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
+                let v = digits;
+                if (digits.length > 4) v = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+                else if (digits.length > 2) v = `${digits.slice(0, 2)}/${digits.slice(2)}`;
+                setDateTo(v);
+              }}
+              className="w-24 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
+              aria-label="Até (dd/mm/yyyy)"
             />
             {(dateFrom || dateTo) && (
               <button
