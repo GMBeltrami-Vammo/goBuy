@@ -51,22 +51,22 @@
 }
 
 .dark {
-  /* DS §12: solid black is a canonical background (BackOffice dark). */
-  --bg: #000000;
-  --surface: #0e0e0e;
-  --surface-2: #1a1a1a;
+  /* Phase 1: Slate Grey — warm, accessible dark mode (2026-06-19) */
+  --bg: #222222;
+  --surface: #2a2a2a;
+  --surface-2: #333333;
   --ink: #ffffff;
   --muted: #bcb9b9; /* DS grayscale */
   --faint: #8d8d8d;
-  --line: #242424;
-  --line-strong: #3d3d3d;
+  --line: #3a3a3a;
+  --line-strong: #4a4a4a;
 
   --accent: #2ec2ff;
-  --accent-strong: #60d1ff; /* mid-light reads better on black */
+  --accent-strong: #60d1ff; /* mid-light reads better on grey */
   --accent-deep: #93dfff;
   --accent-soft: rgba(46, 194, 255, 0.16);
 
-  /* Base alert hexes are neon enough on black. */
+  /* Base alert hexes are neon enough on grey. */
   --pending: #efe133;
   --pending-soft: rgba(239, 225, 51, 0.14);
   --approved: #66ba50;
@@ -81,9 +81,9 @@
   --awaiting-finance-soft: rgba(138, 95, 196, 0.2);
   --awaiting-payment: #d68a35;
   --awaiting-payment-soft: rgba(214, 138, 53, 0.18);
-  --on-status: #000000; /* neon status tokens on black → black foreground */
+  --on-status: #000000; /* neon status tokens on grey → black foreground */
 
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px -12px rgba(0, 0, 0, 0.7);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 8px 28px -10px rgba(0, 0, 0, 0.6);
 }
 
 html {
@@ -141,6 +141,19 @@ body {
 }
 .modal-enter { animation: pop-in 0.2s cubic-bezier(0.2, 0, 0, 1) both; }
 
+/* Phase 3: Table row hover — subtle elevation on dark grey backgrounds */
+.table-row-hover {
+  transition: background-color 0.15s cubic-bezier(0.2, 0, 0, 1);
+}
+.table-row-hover:hover {
+  background-color: var(--surface-2);
+}
+
+/* Drawer & modal backdrop fade coordination */
+.modal-backdrop {
+  transition: opacity 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+
 /* Form controls — 8px radius per DS product track. */
 .input {
   width: 100%;
@@ -155,7 +168,7 @@ body {
 }
 .input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 1px var(--accent);
 }
 .input-ghost {
   width: 100%;
