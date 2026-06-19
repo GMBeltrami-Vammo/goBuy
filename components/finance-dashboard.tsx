@@ -405,68 +405,86 @@ export function FinanceDashboard({
           </div>
         </div>
 
-        {/* Column headers (desktop only) */}
-        <div className="hidden border-b border-[var(--line)] bg-[var(--surface-2)] px-5 py-2 sm:grid sm:grid-cols-[90px_1fr_170px_auto_100px_90px_90px_120px] sm:gap-x-4">
-          {["Solicitação", "Solicitante", "Departamento", "Tipo", "Valor", "Dt. solicitação", "Pag. previsto", "Status"].map((h) => (
-            <span key={h} className="v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">
-              {h}
-            </span>
-          ))}
-        </div>
-
         {requests === null ? (
-          <p className="px-5 py-12 text-center text-sm text-[var(--muted)]">Carregando…</p>
+          <div role="status" aria-label="Carregando solicitações">
+            <FinanceSkeletonRow />
+            <FinanceSkeletonRow />
+            <FinanceSkeletonRow />
+            <FinanceSkeletonRow />
+            <FinanceSkeletonRow />
+          </div>
         ) : filtered.length === 0 ? (
           <p className="px-5 py-12 text-center text-sm text-[var(--faint)]">
             Nenhuma solicitação encontrada.
           </p>
         ) : (
-          <ul>
-            {filtered.map((r) => (
-              <li key={r.id}>
-                <button
-                  onClick={() => setOpenRequest(r)}
-                  className="grid w-full grid-cols-[auto_1fr_auto] items-start gap-x-4 gap-y-1 border-b border-[var(--line)] px-5 py-3 text-left transition last:border-b-0 hover:bg-[var(--surface-2)] sm:grid-cols-[90px_1fr_170px_auto_100px_90px_90px_120px]"
-                >
-                  <span className="v-tabular text-xs font-semibold text-[var(--accent)]">
-                    {r.display_id}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">{r.supplier_name}</span>
-                    <span className="block truncate text-xs text-[var(--muted)]">
-                      {r.requester_email}
-                    </span>
-                  </span>
-                  <span className="hidden sm:block">
-                    <span className="block truncate text-xs font-medium">{r.cost_centers?.department}</span>
-                    <span className="block truncate text-[11px] text-[var(--faint)]">
-                      {r.cost_centers?.code} — {r.cost_centers?.name}
-                    </span>
-                    {r.cost_centers?.cost_center_heads?.slice(0, 2).map((h) => (
-                      <span key={h.head_email} className="block truncate text-[10px] text-[var(--muted)]">
-                        {h.head_name ?? h.head_email.split("@")[0]}
-                      </span>
-                    ))}
-                  </span>
-                  <span className="hidden sm:block">
-                    <TypeBadge type={r.request_type} />
-                  </span>
-                  <span className="hidden text-right v-tabular text-sm font-semibold sm:block">
-                    {formatBRL(Number(r.total_amount))}
-                  </span>
-                  <span className="hidden text-right v-tabular text-xs text-[var(--muted)] sm:block">
-                    {formatDate(r.created_at)}
-                  </span>
-                  <span className="hidden text-right v-tabular text-xs text-[var(--muted)] sm:block">
-                    {r.expected_payment_date ? formatDateOnlyBR(r.expected_payment_date) : "—"}
-                  </span>
-                  <span className="justify-self-end">
-                    <StatusBadge status={r.status} />
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="overflow-x-auto">
+            <table className="w-full" aria-label="Todas as solicitações">
+              <thead className="hidden sm:table-header-group">
+                <tr className="border-b border-[var(--line)] bg-[var(--surface-2)]">
+                  <th scope="col" className="w-[90px] px-5 py-2 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Solicitação</th>
+                  <th scope="col" className="px-2 py-2 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Solicitante</th>
+                  <th scope="col" className="w-[170px] px-2 py-2 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Departamento</th>
+                  <th scope="col" className="px-2 py-2 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Tipo</th>
+                  <th scope="col" className="w-[100px] px-2 py-2 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Valor</th>
+                  <th scope="col" className="w-[90px] px-2 py-2 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Dt. solicitação</th>
+                  <th scope="col" className="w-[90px] px-2 py-2 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Pag. previsto</th>
+                  <th scope="col" className="w-[120px] px-5 py-2 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r) => (
+                  <tr
+                    key={r.id}
+                    onClick={() => setOpenRequest(r)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setOpenRequest(r);
+                      }
+                    }}
+                    tabIndex={0}
+                    className="table-row-hover cursor-pointer border-b border-[var(--line)] last:border-b-0 focus-visible:outline-none focus-visible:bg-[var(--surface-2)]"
+                    aria-label={`Solicitação ${r.display_id} — ${r.supplier_name}`}
+                  >
+                    <td className="px-5 py-3 v-tabular text-xs font-semibold text-[var(--accent)]">
+                      {r.display_id}
+                    </td>
+                    <td className="px-2 py-3">
+                      <div className="truncate text-sm font-medium">{r.supplier_name}</div>
+                      <div className="truncate text-xs text-[var(--muted)]">{r.requester_email}</div>
+                    </td>
+                    <td className="hidden px-2 py-3 sm:table-cell">
+                      <div className="truncate text-xs font-medium">{r.cost_centers?.department}</div>
+                      <div className="truncate text-[11px] text-[var(--faint)]">
+                        {r.cost_centers?.code} — {r.cost_centers?.name}
+                      </div>
+                      {r.cost_centers?.cost_center_heads?.slice(0, 2).map((h) => (
+                        <div key={h.head_email} className="truncate text-[10px] text-[var(--muted)]">
+                          {h.head_name ?? h.head_email.split("@")[0]}
+                        </div>
+                      ))}
+                    </td>
+                    <td className="hidden px-2 py-3 sm:table-cell">
+                      <TypeBadge type={r.request_type} />
+                    </td>
+                    <td className="hidden px-2 py-3 text-right v-tabular text-sm font-semibold sm:table-cell">
+                      {formatBRL(Number(r.total_amount))}
+                    </td>
+                    <td className="hidden px-2 py-3 text-right v-tabular text-xs text-[var(--muted)] sm:table-cell">
+                      {formatDate(r.created_at)}
+                    </td>
+                    <td className="hidden px-2 py-3 text-right v-tabular text-xs text-[var(--muted)] sm:table-cell">
+                      {r.expected_payment_date ? formatDateOnlyBR(r.expected_payment_date) : "—"}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      <StatusBadge status={r.status} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -486,6 +504,18 @@ export function FinanceDashboard({
           }}
         />
       )}
+    </div>
+  );
+}
+
+function FinanceSkeletonRow() {
+  return (
+    <div className="border-b border-[var(--line)] px-5 py-3 last:border-b-0">
+      <div className="flex items-center gap-4">
+        <div className="h-3.5 w-14 shrink-0 animate-pulse rounded bg-[var(--surface-2)]" />
+        <div className="h-3.5 flex-1 animate-pulse rounded bg-[var(--surface-2)]" />
+        <div className="hidden h-5 w-24 shrink-0 animate-pulse rounded-full bg-[var(--surface-2)] sm:block" />
+      </div>
     </div>
   );
 }

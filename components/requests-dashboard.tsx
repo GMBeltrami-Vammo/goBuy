@@ -30,20 +30,18 @@ export function RequestsDashboard({
   const autoOpened = useRef(false);
 
   const load = useCallback(async () => {
-    const supabase = supabaseBrowser(supabaseToken);
-    const reqRes = await supabase
+    const { data } = await supabaseBrowser(supabaseToken)
       .from("purchase_requests")
       .select("*, cost_centers(code, name, department)")
       .eq("requester_email", email)
       .order("created_at", { ascending: false });
-    setRequests((reqRes.data as unknown as PurchaseRequest[]) ?? []);
+    setRequests((data as unknown as PurchaseRequest[]) ?? []);
   }, [email, supabaseToken]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  // Auto-open a specific request when linked from Slack.
   useEffect(() => {
     if (!autoOpenDisplayId || autoOpened.current || !requests) return;
     const match = requests.find((r) => r.display_id === autoOpenDisplayId);
@@ -53,17 +51,21 @@ export function RequestsDashboard({
     }
   }, [autoOpenDisplayId, requests]);
 
+  // summary is null while requests are still loading → cards show skeletons.
+  // "Em andamento" covers approved + awaiting_finance + awaiting_payment.
+  // totalValue includes ALL requests (honest total — no silent exclusions).
   const summary = useMemo(() => {
-    const list = requests ?? [];
-    const by = (s: string) => list.filter((r) => r.status === s);
+    if (requests === null) return null;
+    const byStatus = (...ss: string[]) => requests.filter((r) => ss.includes(r.status));
     const sum = (rs: PurchaseRequest[]) => rs.reduce((a, r) => a + Number(r.total_amount), 0);
+    const inProgress = byStatus("approved", "awaiting_finance", "awaiting_payment");
     return {
-      pending: by("pending").length,
-      approved: by("approved").length,
-      approvedValue: sum(by("approved")),
-      paid: by("paid").length,
-      paidValue: sum(by("paid")),
-      totalValue: sum(list.filter((r) => r.status !== "cancelled" && r.status !== "rejected")),
+      pending: byStatus("pending").length,
+      inProgress: inProgress.length,
+      inProgressValue: sum(inProgress),
+      paid: byStatus("paid").length,
+      paidValue: sum(byStatus("paid")),
+      totalValue: sum(requests),
     };
   }, [requests]);
 
@@ -78,38 +80,41 @@ export function RequestsDashboard({
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Olá, {firstName}</h1>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Acompanhe suas solicitações de compra e envie documentos.
+            Acompanhe e gerencie suas solicitações de compra.
           </p>
         </div>
         <button
           onClick={() => setShowNew(true)}
-          className="rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-bold text-black shadow-[var(--shadow)] transition hover:opacity-90"
+          className="rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-bold text-black shadow-[var(--shadow)] transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
         >
           + Nova solicitação
         </button>
       </div>
 
       {toast && (
-        <p className="reveal mt-5 rounded-lg border border-[var(--approved)] bg-[var(--approved-soft)] px-4 py-2.5 text-sm text-[var(--approved)]">
+        <p
+          role="status"
+          className="reveal mt-5 rounded-lg border border-[var(--approved)] bg-[var(--approved-soft)] px-4 py-2.5 text-sm text-[var(--approved)]"
+        >
           {toast}
         </p>
       )}
 
       <div className="reveal reveal-2 mt-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <SummaryCard label="Pendentes" value={String(summary.pending)} tone="pending" />
+        <SummaryCard label="Aguardando" value={summary ? String(summary.pending) : null} tone="pending" />
         <SummaryCard
-          label="Aprovadas"
-          value={String(summary.approved)}
-          sub={formatBRL(summary.approvedValue)}
-          tone="approved"
+          label="Em andamento"
+          value={summary ? String(summary.inProgress) : null}
+          sub={summary ? formatBRL(summary.inProgressValue) : undefined}
+          tone="accent"
         />
         <SummaryCard
           label="Pagas"
-          value={String(summary.paid)}
-          sub={formatBRL(summary.paidValue)}
+          value={summary ? String(summary.paid) : null}
+          sub={summary ? formatBRL(summary.paidValue) : undefined}
           tone="paid"
         />
-        <SummaryCard label="Total solicitado" value={formatBRL(summary.totalValue)} small />
+        <SummaryCard label="Total solicitado" value={summary ? formatBRL(summary.totalValue) : null} small />
       </div>
 
       <div className="reveal reveal-3 mt-8 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
@@ -123,50 +128,87 @@ export function RequestsDashboard({
         </div>
 
         {requests === null ? (
-          <p className="px-5 py-14 text-center text-sm text-[var(--muted)]">Carregando…</p>
+          <div role="status" aria-label="Carregando solicitações">
+            <SkeletonRow />
+            <SkeletonRow />
+            <SkeletonRow />
+          </div>
         ) : requests.length === 0 ? (
           <div className="px-5 py-14 text-center">
             <p className="text-sm text-[var(--muted)]">Nenhuma solicitação por aqui ainda.</p>
             <button
               onClick={() => setShowNew(true)}
-              className="mt-3 text-sm font-semibold text-[var(--accent)] hover:underline"
+              className="mt-3 text-sm font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             >
               Criar a primeira →
             </button>
           </div>
         ) : (
-          <ul>
-            {requests.map((r) => (
-              <li key={r.id}>
-                <button
-                  onClick={() => setOpenRequest(r)}
-                  className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-1 border-b border-[var(--line)] px-5 py-3.5 text-left transition last:border-b-0 hover:bg-[var(--surface-2)] sm:grid-cols-[90px_1fr_auto_110px_90px_132px]"
-                >
-                  <span className="v-tabular text-xs font-semibold text-[var(--accent)]">
-                    {r.display_id}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">{r.supplier_name}</span>
-                    <span className="block truncate text-xs text-[var(--muted)]">
-                      {r.cost_centers?.department} · {r.cost_centers?.name}
-                    </span>
-                  </span>
-                  <span className="hidden sm:block">
-                    <TypeBadge type={r.request_type} />
-                  </span>
-                  <span className="hidden text-right v-tabular text-sm font-semibold sm:block">
-                    {formatBRL(Number(r.total_amount))}
-                  </span>
-                  <span className="hidden text-right v-tabular text-xs text-[var(--muted)] sm:block">
-                    {formatDate(r.created_at)}
-                  </span>
-                  <span className="justify-self-end">
-                    <StatusBadge status={r.status} />
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="overflow-x-auto">
+            <table className="w-full" aria-label="Minhas solicitações de compra">
+              <thead className="hidden sm:table-header-group">
+                <tr className="border-b border-[var(--line)]">
+                  <th scope="col" className="w-[90px] px-5 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">
+                    ID
+                  </th>
+                  <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">
+                    Fornecedor
+                  </th>
+                  <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">
+                    Tipo
+                  </th>
+                  <th scope="col" className="w-[110px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">
+                    Valor
+                  </th>
+                  <th scope="col" className="w-[90px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">
+                    Data
+                  </th>
+                  <th scope="col" className="w-[132px] px-5 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">
+                    Status
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {requests.map((r) => (
+                  <tr
+                    key={r.id}
+                    onClick={() => setOpenRequest(r)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setOpenRequest(r);
+                      }
+                    }}
+                    tabIndex={0}
+                    className="table-row-hover cursor-pointer border-b border-[var(--line)] last:border-b-0 focus-visible:outline-none focus-visible:bg-[var(--surface-2)]"
+                    aria-label={`Solicitação ${r.display_id} — ${r.supplier_name}`}
+                  >
+                    <td className="px-5 py-3.5 v-tabular text-xs font-semibold text-[var(--accent)]">
+                      {r.display_id}
+                    </td>
+                    <td className="px-2 py-3.5">
+                      <div className="text-sm font-medium">{r.supplier_name}</div>
+                      <div className="truncate text-xs text-[var(--muted)]">
+                        {r.cost_centers?.department} · {r.cost_centers?.name}
+                      </div>
+                    </td>
+                    <td className="hidden px-2 py-3.5 sm:table-cell">
+                      <TypeBadge type={r.request_type} />
+                    </td>
+                    <td className="hidden px-2 py-3.5 text-right v-tabular text-sm font-semibold sm:table-cell">
+                      {formatBRL(Number(r.total_amount))}
+                    </td>
+                    <td className="hidden px-2 py-3.5 text-right v-tabular text-xs text-[var(--muted)] sm:table-cell">
+                      {formatDate(r.created_at)}
+                    </td>
+                    <td className="px-5 py-3.5 text-right">
+                      <StatusBadge status={r.status} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -201,6 +243,18 @@ export function RequestsDashboard({
   );
 }
 
+function SkeletonRow() {
+  return (
+    <div className="border-b border-[var(--line)] px-5 py-3.5 last:border-b-0">
+      <div className="flex items-center gap-4">
+        <div className="h-3.5 w-14 shrink-0 animate-pulse rounded bg-[var(--surface-2)]" />
+        <div className="h-3.5 flex-1 animate-pulse rounded bg-[var(--surface-2)]" />
+        <div className="h-5 w-24 shrink-0 animate-pulse rounded-full bg-[var(--surface-2)]" />
+      </div>
+    </div>
+  );
+}
+
 function SummaryCard({
   label,
   value,
@@ -209,23 +263,27 @@ function SummaryCard({
   small,
 }: {
   label: string;
-  value: string;
+  value: string | null;
   sub?: string;
-  tone?: "pending" | "approved" | "paid";
+  tone?: "pending" | "approved" | "paid" | "accent";
   small?: boolean;
 }) {
   return (
     <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 shadow-[var(--shadow)]">
-      <p className="v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">
-        {label}
-      </p>
-      <p
-        className={`mt-1.5 v-tabular font-bold ${small ? "text-lg" : "text-2xl"}`}
-        style={tone ? { color: `var(--${tone})` } : undefined}
-      >
-        {value}
-      </p>
-      {sub && <p className="mt-0.5 v-tabular text-xs text-[var(--muted)]">{sub}</p>}
+      <p className="v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">{label}</p>
+      {value === null ? (
+        <div className="mt-2 h-7 w-20 animate-pulse rounded-md bg-[var(--surface-2)]" />
+      ) : (
+        <p
+          className={`mt-1.5 v-tabular font-bold ${small ? "text-lg" : "text-2xl"}`}
+          style={tone ? { color: `var(--${tone})` } : undefined}
+        >
+          {value}
+        </p>
+      )}
+      {sub && value !== null && (
+        <p className="mt-0.5 v-tabular text-xs text-[var(--muted)]">{sub}</p>
+      )}
     </div>
   );
 }

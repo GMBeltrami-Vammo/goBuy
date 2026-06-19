@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { formatBRL } from "@/lib/format";
 import { COMPANIES, CURRENCIES, CURRENCY_CUSTOM, formatAmount } from "@/lib/payment";
@@ -33,6 +33,14 @@ export function NewRequestModal({
   onSubmitted: (displayId: string) => void;
 }) {
   useBodyScrollLock();
+
+  // Dismiss on Esc
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   const [type, setType] = useState<RequestType>("products");
   const [supplier, setSupplier] = useState("");
   const [supplierDoc, setSupplierDoc] = useState("");
@@ -53,7 +61,8 @@ export function NewRequestModal({
   const [company, setCompany] = useState<string>(COMPANIES[0]);
   const [splitDepts, setSplitDepts] = useState(false);
   const [allocations, setAllocations] = useState<AllocationDraft[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [serverError, setServerError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
   const activeCurrency =
@@ -111,25 +120,38 @@ export function NewRequestModal({
   const lastPct = Math.round((100 - othersSum) * 100) / 100;
 
   const submit = async () => {
-    setError(null);
-    if (!supplier.trim()) return setError(isAdvance ? "Informe o beneficiário." : "Informe o fornecedor.");
-    if (!ccId) return setError("Selecione o centro de custo.");
+    const errs: Record<string, string> = {};
+
+    if (!supplier.trim())
+      errs.supplier = isAdvance ? "Informe o beneficiário." : "Informe o fornecedor.";
+    if (!ccId)
+      errs.cc = "Selecione o centro de custo.";
     if (currency === CURRENCY_CUSTOM && !/^[A-Z]{2,10}$/.test(customCurrency.trim().toUpperCase()))
-      return setError("Informe um código de moeda válido (ex: CLP, CHF).");
+      errs.customCurrency = "Código inválido (ex: CLP, CHF).";
     if (type === "products" && items.every((i) => !i.description.trim()))
-      return setError("Adicione ao menos um item.");
-    if (total <= 0) return setError("O valor total deve ser maior que zero.");
-    if (splitDepts) {
-      if (allocations.length < 2) return setError("Rateio exige ao menos dois departamentos.");
-      if (allocations.some((a) => !a.ccId))
-        return setError("Selecione o centro de custo em cada linha do rateio.");
-      if (allocations.slice(0, -1).some((a) => (parseFloat(a.percentage) || 0) <= 0))
-        return setError("Cada departamento do rateio precisa de um percentual maior que zero.");
-      if (lastPct <= 0)
-        return setError(
-          `Os demais departamentos já somam ${othersSum.toFixed(2).replace(".", ",")}%. Reduza para liberar o último.`,
-        );
+      errs.items = "Adicione ao menos um item com descrição.";
+    if (total <= 0) {
+      if (type === "service") errs.serviceValue = "Informe um valor maior que zero.";
+      else if (type === "advance") errs.advanceValue = "Informe um valor maior que zero.";
+      else errs.items = errs.items ?? "O total deve ser maior que zero.";
     }
+    if (splitDepts) {
+      if (allocations.length < 2)
+        errs.rateio = "Rateio exige ao menos dois departamentos.";
+      else if (allocations.some((a) => !a.ccId))
+        errs.rateio = "Selecione o centro de custo em cada linha do rateio.";
+      else if (allocations.slice(0, -1).some((a) => (parseFloat(a.percentage) || 0) <= 0))
+        errs.rateio = "Cada departamento precisa de um percentual maior que zero.";
+      else if (lastPct <= 0)
+        errs.rateio = `Os demais departamentos já somam ${othersSum.toFixed(2).replace(".", ",")}%. Reduza para liberar o último.`;
+    }
+
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs);
+      return;
+    }
+    setFieldErrors({});
+    setServerError(null);
 
     const payload: Record<string, unknown> = {
       request_type: type,
@@ -180,14 +202,14 @@ export function NewRequestModal({
       });
     } catch {
       setSending(false);
-      setError("Erro de rede. Verifique sua conexão e tente novamente.");
+      setServerError("Erro de rede. Verifique sua conexão e tente novamente.");
       return;
     }
     setSending(false);
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({})) as { error?: string };
-      setError(body.error ?? "Erro ao enviar solicitação.");
+      setServerError(body.error ?? "Erro ao enviar solicitação.");
       return;
     }
 
@@ -203,12 +225,18 @@ export function NewRequestModal({
       <div className="modal-enter w-full max-w-2xl rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
         <div className="flex items-center justify-between border-b border-[var(--line)] px-6 py-4">
           <h2 className="text-lg font-bold">Nova solicitação</h2>
-          <button onClick={onClose} aria-label="Fechar" className="text-[var(--faint)] hover:text-[var(--ink)]">✕</button>
+          <button
+            onClick={onClose}
+            aria-label="Fechar"
+            className="text-[var(--faint)] hover:text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+          >
+            ✕
+          </button>
         </div>
 
         <div className="space-y-6 px-6 py-5">
           {/* Type */}
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Tipo de solicitação">
             {(
               [
                 ["products", "Produtos / materiais"],
@@ -219,7 +247,8 @@ export function NewRequestModal({
               <button
                 key={t}
                 onClick={() => setType(t)}
-                className={`rounded-lg border px-4 py-2 text-sm transition ${
+                aria-pressed={type === t}
+                className={`rounded-lg border px-4 py-2 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
                   type === t
                     ? "border-[var(--accent)] bg-[var(--accent-soft)] font-semibold text-[var(--ink)]"
                     : "border-[var(--line)] text-[var(--muted)] hover:border-[var(--line-strong)]"
@@ -232,10 +261,10 @@ export function NewRequestModal({
 
           {/* Supplier + CC */}
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label={isAdvance ? "Nome do beneficiário" : "Nome do fornecedor"}>
+            <Field label={isAdvance ? "Nome do beneficiário" : "Nome do fornecedor"} error={fieldErrors.supplier}>
               <input
                 value={supplier}
-                onChange={(e) => setSupplier(e.target.value)}
+                onChange={(e) => { setSupplier(e.target.value); if (fieldErrors.supplier) setFieldErrors((p) => ({ ...p, supplier: "" })); }}
                 placeholder={isAdvance ? "Quem receberá o adiantamento" : "Razão social"}
                 className="input"
                 maxLength={200}
@@ -250,8 +279,12 @@ export function NewRequestModal({
                 maxLength={20}
               />
             </Field>
-            <Field label="Centro de custo">
-              <select value={ccId} onChange={(e) => setCcId(e.target.value)} className="input">
+            <Field label="Centro de custo" error={fieldErrors.cc}>
+              <select
+                value={ccId}
+                onChange={(e) => { setCcId(e.target.value); if (fieldErrors.cc) setFieldErrors((p) => ({ ...p, cc: "" })); }}
+                className="input"
+              >
                 <option value="">Selecione…</option>
                 {grouped.map(([dept, ccs]) => (
                   <optgroup key={dept} label={dept}>
@@ -283,8 +316,12 @@ export function NewRequestModal({
                 className="input bg-[var(--surface-2)] text-[var(--muted)]"
               />
             </Field>
-            <Field label="Moeda">
-              <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="input">
+            <Field label="Moeda" error={fieldErrors.customCurrency}>
+              <select
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className="input"
+              >
                 {CURRENCIES.map((c) => (
                   <option key={c.code} value={c.code}>{c.label}</option>
                 ))}
@@ -330,7 +367,7 @@ export function NewRequestModal({
                   if (e.target.checked && allocations.length === 0) {
                     setAllocations([
                       { ccId, percentage: "50" },
-                      { ccId: "", percentage: "" }, // last = computed remainder
+                      { ccId: "", percentage: "" },
                     ]);
                   }
                 }}
@@ -405,8 +442,6 @@ export function NewRequestModal({
                   <button
                     type="button"
                     onClick={() =>
-                      // Freeze the current computed remainder into the previously-last
-                      // row, then append a fresh row that becomes the new remainder.
                       setAllocations((prev) => {
                         const others = prev
                           .slice(0, -1)
@@ -418,7 +453,7 @@ export function NewRequestModal({
                         return [...frozen, { ccId: "", percentage: "" }];
                       })
                     }
-                    className="text-sm font-semibold text-[var(--accent)] hover:underline"
+                    className="text-sm font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   >
                     + Adicionar departamento
                   </button>
@@ -432,6 +467,9 @@ export function NewRequestModal({
                       : `✓ Soma 100% · último ${lastPct.toFixed(2).replace(".", ",")}%`}
                   </p>
                 </div>
+                {fieldErrors.rateio && (
+                  <p className="text-xs text-[var(--rejected)]" role="alert">{fieldErrors.rateio}</p>
+                )}
               </div>
             )}
           </div>
@@ -459,7 +497,7 @@ export function NewRequestModal({
                         <td className="px-2 py-1">
                           <input
                             value={it.description}
-                            onChange={(e) => setItem(i, { description: e.target.value })}
+                            onChange={(e) => { setItem(i, { description: e.target.value }); if (fieldErrors.items) setFieldErrors((p) => ({ ...p, items: "" })); }}
                             placeholder="Item"
                             className="input-ghost"
                           />
@@ -491,7 +529,7 @@ export function NewRequestModal({
                             min="0"
                             step="0.01"
                             value={it.unit_value}
-                            onChange={(e) => setItem(i, { unit_value: e.target.value })}
+                            onChange={(e) => { setItem(i, { unit_value: e.target.value }); if (fieldErrors.items) setFieldErrors((p) => ({ ...p, items: "" })); }}
                             placeholder="0,00"
                             className="input-ghost text-right"
                           />
@@ -515,12 +553,17 @@ export function NewRequestModal({
                 </tbody>
               </table>
               <div className="flex items-center justify-between px-3 py-2">
-                <button
-                  onClick={() => setItems((prev) => [...prev, { ...EMPTY_ITEM }])}
-                  className="text-sm font-semibold text-[var(--accent)] hover:underline"
-                >
-                  + Adicionar item
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setItems((prev) => [...prev, { ...EMPTY_ITEM }])}
+                    className="text-sm font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                  >
+                    + Adicionar item
+                  </button>
+                  {fieldErrors.items && (
+                    <span className="text-xs text-[var(--rejected)]" role="alert">{fieldErrors.items}</span>
+                  )}
+                </div>
                 <p className="v-tabular text-sm">
                   <span className="text-[var(--muted)]">Total </span>
                   <span className="font-bold">{fmt(itemsTotal)}</span>
@@ -532,13 +575,13 @@ export function NewRequestModal({
           {/* Service */}
           {type === "service" && (
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label={`Valor do contrato (${currency})`}>
+              <Field label={`Valor do contrato (${currency})`} error={fieldErrors.serviceValue}>
                 <input
                   type="number"
                   min="0"
                   step="0.01"
                   value={serviceValue}
-                  onChange={(e) => setServiceValue(e.target.value)}
+                  onChange={(e) => { setServiceValue(e.target.value); if (fieldErrors.serviceValue) setFieldErrors((p) => ({ ...p, serviceValue: "" })); }}
                   placeholder="0,00"
                   className="input"
                 />
@@ -572,13 +615,13 @@ export function NewRequestModal({
                 validação adicional do Financeiro.
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label={`Valor (${currency})`}>
+                <Field label={`Valor (${currency})`} error={fieldErrors.advanceValue}>
                   <input
                     type="number"
                     min="0"
                     step="0.01"
                     value={advanceValue}
-                    onChange={(e) => setAdvanceValue(e.target.value)}
+                    onChange={(e) => { setAdvanceValue(e.target.value); if (fieldErrors.advanceValue) setFieldErrors((p) => ({ ...p, advanceValue: "" })); }}
                     placeholder="0,00"
                     className="input"
                   />
@@ -616,36 +659,43 @@ export function NewRequestModal({
             />
           </Field>
 
-          {error && (
-            <p className="rounded-lg border border-[var(--rejected)] bg-[var(--rejected-soft)] px-4 py-2.5 text-sm text-[var(--rejected)]">
-              {error}
+          {serverError && (
+            <p
+              role="alert"
+              className="rounded-lg border border-[var(--rejected)] bg-[var(--rejected-soft)] px-4 py-2.5 text-sm text-[var(--rejected)]"
+            >
+              {serverError}
             </p>
           )}
         </div>
 
         <div className="flex items-center justify-between border-t border-[var(--line)] px-6 py-4">
-          <p className="v-tabular text-sm">
-            <span className="text-[var(--muted)]">Total da solicitação </span>
-            <span className="text-lg font-bold">{fmt(total)}</span>
-          </p>
+          <div>
+            <p className="v-tabular text-sm">
+              <span className="text-[var(--muted)]">Total da solicitação </span>
+              <span className="text-lg font-bold">{fmt(total)}</span>
+            </p>
+            <p className="mt-0.5 text-[11px] text-[var(--faint)]">
+              Documentos de suporte podem ser enviados após a submissão.
+            </p>
+          </div>
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="rounded-lg border border-[var(--line-strong)] px-4 py-2 text-sm font-medium hover:bg-[var(--surface-2)]"
+              className="rounded-lg border border-[var(--line-strong)] px-4 py-2 text-sm font-medium hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             >
               Cancelar
             </button>
             <button
               onClick={submit}
               disabled={sending}
-              className="rounded-lg bg-[var(--accent)] px-5 py-2 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-60"
+              className="rounded-lg bg-[var(--accent)] px-5 py-2 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
             >
               {sending ? "Enviando…" : "Enviar solicitação"}
             </button>
           </div>
         </div>
       </div>
-
     </div>
   );
 }
@@ -654,15 +704,22 @@ function Field({
   label,
   children,
   full,
+  error,
 }: {
   label: string;
   children: React.ReactNode;
   full?: boolean;
+  error?: string;
 }) {
   return (
     <label className={`block ${full ? "sm:col-span-2" : ""}`}>
       <span className="mb-1.5 block text-xs font-medium text-[var(--muted)]">{label}</span>
       {children}
+      {error && (
+        <span className="mt-1 block text-xs text-[var(--rejected)]" role="alert">
+          {error}
+        </span>
+      )}
     </label>
   );
 }

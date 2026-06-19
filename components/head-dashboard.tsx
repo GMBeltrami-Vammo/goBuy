@@ -153,7 +153,7 @@ export function HeadDashboard({
         (a.cost_centers?.department ?? "").localeCompare(b.cost_centers?.department ?? ""),
       );
     return sorted;
-  }, [requests, sortKey]);
+  }, [requests, sortKey, centerIds]);
 
   const recent = useMemo(
     () => (requests ?? []).filter((r) => r.status !== "pending").slice(0, 12),
@@ -180,6 +180,8 @@ export function HeadDashboard({
     [centers, committedByCenter, budgetByCenter],
   );
 
+  const loading = requests === null;
+
   return (
     <div>
       <div className="reveal reveal-1 flex flex-wrap items-end justify-between gap-4">
@@ -198,7 +200,10 @@ export function HeadDashboard({
       </div>
 
       {toast && (
-        <p className="reveal mt-5 rounded-lg border border-[var(--approved)] bg-[var(--approved-soft)] px-4 py-2.5 text-sm text-[var(--approved)]">
+        <p
+          role="status"
+          className="reveal mt-5 rounded-lg border border-[var(--approved)] bg-[var(--approved-soft)] px-4 py-2.5 text-sm text-[var(--approved)]"
+        >
           {toast}
         </p>
       )}
@@ -213,7 +218,7 @@ export function HeadDashboard({
             id="head-month"
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(e.target.value)}
-            className="rounded-lg border border-[var(--line-strong)] bg-[var(--bg)] px-3 py-1.5 text-sm font-medium capitalize text-[var(--ink)] outline-none transition focus:border-[var(--accent)]"
+            className="rounded-lg border border-[var(--line-strong)] bg-[var(--bg)] px-3 py-1.5 text-sm font-medium capitalize text-[var(--ink)] outline-none transition focus:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
           >
             {availableMonths.map((m) => (
               <option key={m} value={m}>
@@ -224,16 +229,16 @@ export function HeadDashboard({
           {selectedMonth !== monthStart && (
             <button
               onClick={() => setSelectedMonth(monthStart)}
-              className="text-xs font-semibold text-[var(--accent)] hover:underline"
+              className="text-xs font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             >
               Voltar ao mês atual
             </button>
           )}
         </div>
         <div className="grid grid-cols-3 gap-3">
-          <Stat label="Budget do mês" value={formatBRL(totals.budget)} />
-          <Stat label="Comprometido" value={formatBRL(totals.committed)} tone="pending" />
-          <Stat label="Disponível" value={formatBRL(totals.available)} tone="approved" />
+          <Stat label="Budget do mês" value={loading ? null : formatBRL(totals.budget)} />
+          <Stat label="Comprometido" value={loading ? null : formatBRL(totals.committed)} tone="pending" />
+          <Stat label="Disponível" value={loading ? null : formatBRL(totals.available)} tone="approved" />
         </div>
       </div>
       {isMock && (
@@ -254,7 +259,7 @@ export function HeadDashboard({
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
-                className={`rounded-md px-3 py-1 text-xs font-medium transition ${
+                className={`rounded-md px-3 py-1 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
                   viewMode === mode
                     ? "bg-[var(--accent-soft)] text-[var(--accent)]"
                     : "text-[var(--muted)] hover:text-[var(--ink)]"
@@ -284,7 +289,7 @@ export function HeadDashboard({
                 <button
                   key={cc.id}
                   onClick={() => setDetailCenter(cc)}
-                  className="flex items-center gap-4 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-left shadow-[var(--shadow)] transition hover:border-[var(--accent)]"
+                  className="flex items-center gap-4 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-left shadow-[var(--shadow)] transition hover:border-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                   title="Ver detalhes do budget"
                 >
                   <BudgetDonut consumed={consumed} budget={budget} />
@@ -335,7 +340,7 @@ export function HeadDashboard({
               <button
                 key={k}
                 onClick={() => setSortKey(k)}
-                className={`rounded-full px-3 py-1 transition ${
+                className={`rounded-full px-3 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
                   sortKey === k
                     ? "bg-[var(--accent-soft)] font-semibold text-[var(--accent)]"
                     : "text-[var(--muted)] hover:text-[var(--ink)]"
@@ -347,45 +352,70 @@ export function HeadDashboard({
           </div>
         </div>
 
-        {requests === null ? (
-          <p className="px-5 py-12 text-center text-sm text-[var(--muted)]">Carregando…</p>
+        {loading ? (
+          <div role="status" aria-label="Carregando solicitações pendentes">
+            <SkeletonRow />
+            <SkeletonRow />
+            <SkeletonRow />
+          </div>
         ) : pending.length === 0 ? (
           <p className="px-5 py-12 text-center text-sm text-[var(--faint)]">
             Nenhuma solicitação pendente por aqui.
           </p>
         ) : (
-          <ul>
-            {pending.map((r) => (
-              <li key={r.id}>
-                <button
-                  onClick={() => setOpenRequest(r)}
-                  className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-1 border-b border-[var(--line)] px-5 py-3.5 text-left transition last:border-b-0 hover:bg-[var(--surface-2)] sm:grid-cols-[90px_1fr_110px_auto_120px_90px]"
-                >
-                  <span className="v-tabular text-xs font-semibold text-[var(--accent)]">
-                    {r.display_id}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">{r.supplier_name}</span>
-                    <span className="block truncate text-xs text-[var(--muted)]">
-                      {r.requester_email} · {r.cost_centers?.department}
-                    </span>
-                  </span>
-                  <span className="hidden sm:block">
-                    <TypeBadge type={r.request_type} />
-                  </span>
-                  <span className="text-right v-tabular text-sm font-bold">
-                    {formatBRL(Number(r.total_amount))}
-                  </span>
-                  <span className="hidden text-right v-tabular text-xs text-[var(--muted)] sm:block">
-                    {formatDate(r.created_at)}
-                  </span>
-                  <span className="hidden justify-self-end text-xs font-semibold text-[var(--accent)] sm:block">
-                    Revisar →
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="overflow-x-auto">
+            <table className="w-full" aria-label="Solicitações aguardando aprovação">
+              <thead className="hidden sm:table-header-group">
+                <tr className="border-b border-[var(--line)]">
+                  <th scope="col" className="w-[90px] px-5 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">ID</th>
+                  <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Solicitação</th>
+                  <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Tipo</th>
+                  <th scope="col" className="w-[110px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Valor</th>
+                  <th scope="col" className="w-[120px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Data</th>
+                  <th scope="col" className="w-[90px] px-5 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Ação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pending.map((r) => (
+                  <tr
+                    key={r.id}
+                    onClick={() => setOpenRequest(r)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setOpenRequest(r);
+                      }
+                    }}
+                    tabIndex={0}
+                    className="table-row-hover cursor-pointer border-b border-[var(--line)] last:border-b-0 focus-visible:outline-none focus-visible:bg-[var(--surface-2)]"
+                    aria-label={`Revisar solicitação ${r.display_id} — ${r.supplier_name}`}
+                  >
+                    <td className="px-5 py-3.5 v-tabular text-xs font-semibold text-[var(--accent)]">
+                      {r.display_id}
+                    </td>
+                    <td className="px-2 py-3.5">
+                      <div className="text-sm font-medium">{r.supplier_name}</div>
+                      <div className="truncate text-xs text-[var(--muted)]">
+                        {r.requester_email} · {r.cost_centers?.department}
+                      </div>
+                    </td>
+                    <td className="hidden px-2 py-3.5 sm:table-cell">
+                      <TypeBadge type={r.request_type} />
+                    </td>
+                    <td className="px-2 py-3.5 text-right v-tabular text-sm font-bold">
+                      {formatBRL(Number(r.total_amount))}
+                    </td>
+                    <td className="hidden px-2 py-3.5 text-right v-tabular text-xs text-[var(--muted)] sm:table-cell">
+                      {formatDate(r.created_at)}
+                    </td>
+                    <td className="hidden px-5 py-3.5 text-right v-tabular text-xs font-semibold text-[var(--accent)] sm:table-cell">
+                      Revisar →
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -397,25 +427,37 @@ export function HeadDashboard({
               Recentes
             </h2>
           </div>
-          <ul>
-            {recent.map((r) => (
-              <li key={r.id}>
-                <button
-                  onClick={() => setOpenRequest(r)}
-                  className="flex w-full items-center gap-4 border-b border-[var(--line)] px-5 py-3 text-left transition last:border-b-0 hover:bg-[var(--surface-2)]"
-                >
-                  <span className="v-tabular text-xs font-semibold text-[var(--accent)]">
-                    {r.display_id}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-sm">{r.supplier_name}</span>
-                  <span className="hidden v-tabular text-xs text-[var(--muted)] sm:block">
-                    {formatBRL(Number(r.total_amount))}
-                  </span>
-                  <StatusBadge status={r.status} />
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="overflow-x-auto">
+            <table className="w-full" aria-label="Decisões recentes">
+              <tbody>
+                {recent.map((r) => (
+                  <tr
+                    key={r.id}
+                    onClick={() => setOpenRequest(r)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setOpenRequest(r);
+                      }
+                    }}
+                    tabIndex={0}
+                    className="table-row-hover cursor-pointer border-b border-[var(--line)] last:border-b-0 focus-visible:outline-none focus-visible:bg-[var(--surface-2)]"
+                  >
+                    <td className="w-[90px] px-5 py-3 v-tabular text-xs font-semibold text-[var(--accent)]">
+                      {r.display_id}
+                    </td>
+                    <td className="px-2 py-3 text-sm">{r.supplier_name}</td>
+                    <td className="hidden px-2 py-3 text-right v-tabular text-xs text-[var(--muted)] sm:table-cell">
+                      {formatBRL(Number(r.total_amount))}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      <StatusBadge status={r.status} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -457,27 +499,41 @@ export function HeadDashboard({
   );
 }
 
+function SkeletonRow() {
+  return (
+    <div className="border-b border-[var(--line)] px-5 py-3.5 last:border-b-0">
+      <div className="flex items-center gap-4">
+        <div className="h-3.5 w-14 shrink-0 animate-pulse rounded bg-[var(--surface-2)]" />
+        <div className="h-3.5 flex-1 animate-pulse rounded bg-[var(--surface-2)]" />
+        <div className="h-5 w-24 shrink-0 animate-pulse rounded-full bg-[var(--surface-2)]" />
+      </div>
+    </div>
+  );
+}
+
 function Stat({
   label,
   value,
   tone,
 }: {
   label: string;
-  value: string;
+  value: string | null;
   tone?: "pending" | "approved";
 }) {
   return (
     <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 shadow-[var(--shadow)]">
-      <p className="v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">
-        {label}
-      </p>
-      <p
-        className="mt-1.5 truncate v-tabular text-lg font-bold"
-        style={tone ? { color: `var(--${tone})` } : undefined}
-        title={value}
-      >
-        {value}
-      </p>
+      <p className="v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">{label}</p>
+      {value === null ? (
+        <div className="mt-2 h-6 w-24 animate-pulse rounded-md bg-[var(--surface-2)]" />
+      ) : (
+        <p
+          className="mt-1.5 truncate v-tabular text-lg font-bold"
+          style={tone ? { color: `var(--${tone})` } : undefined}
+          title={value}
+        >
+          {value}
+        </p>
+      )}
     </div>
   );
 }
