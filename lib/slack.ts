@@ -41,6 +41,8 @@ export interface HeadNotification {
   costCenterCode: string | null;
   costCenterName: string | null;
   justification: string | null;
+  /** Present when the request spans multiple cost centers (rateio). */
+  allocations?: Array<{ ccCode: string; ccName: string; percentage: number }>;
 }
 
 export interface RequesterNotification {
@@ -94,27 +96,42 @@ export async function notifyHead(req: HeadNotification): Promise<void> {
     return;
   }
 
+  const isRateio = (req.allocations?.length ?? 0) > 1;
+
   const ccLabel =
     req.costCenterCode && req.costCenterName
       ? `${req.costCenterCode} — ${req.costCenterName}`
       : (req.costCenterCode ?? req.costCenterName ?? "—");
+
+  // Main fields — CC shown inline for single-CC; replaced by rateio count for rateio
+  const mainFields: object[] = [
+    { type: "mrkdwn", text: `*Solicitante:*\n${req.requesterEmail}` },
+    { type: "mrkdwn", text: `*Tipo:*\n${typeLabel(req.requestType)}` },
+    { type: "mrkdwn", text: `*Fornecedor:*\n${req.supplierName}` },
+    { type: "mrkdwn", text: `*Valor:*\n${brl(req.totalAmount)}` },
+    isRateio
+      ? { type: "mrkdwn", text: `*Rateio:*\n${req.allocations!.length} centros de custo` }
+      : { type: "mrkdwn", text: `*Centro de custo:*\n${ccLabel}` },
+  ];
 
   const blocks: object[] = [
     {
       type: "header",
       text: { type: "plain_text", text: `Nova solicitação · ${req.displayId}`, emoji: true },
     },
-    {
-      type: "section",
-      fields: [
-        { type: "mrkdwn", text: `*Solicitante:*\n${req.requesterEmail}` },
-        { type: "mrkdwn", text: `*Tipo:*\n${typeLabel(req.requestType)}` },
-        { type: "mrkdwn", text: `*Fornecedor:*\n${req.supplierName}` },
-        { type: "mrkdwn", text: `*Valor:*\n${brl(req.totalAmount)}` },
-        { type: "mrkdwn", text: `*Centro de custo:*\n${ccLabel}` },
-      ],
-    },
+    { type: "section", fields: mainFields },
   ];
+
+  // Rateio breakdown
+  if (isRateio) {
+    const bullets = req.allocations!
+      .map((a) => `• ${a.ccCode} — ${a.ccName} · *${a.percentage}%*`)
+      .join("\n");
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: bullets },
+    });
+  }
 
   if (req.justification) {
     blocks.push({
@@ -139,7 +156,12 @@ export async function notifyHead(req: HeadNotification): Promise<void> {
         value: req.requestId,
         confirm: {
           title: { type: "plain_text", text: "Confirmar aprovação" },
-          text: { type: "mrkdwn", text: `Aprovar *${req.displayId}* de ${req.requesterEmail}?` },
+          text: {
+            type: "mrkdwn",
+            text: isRateio
+              ? `Aprovar *${req.displayId}* (rateio entre ${req.allocations!.length} CCs) de ${req.requesterEmail}?`
+              : `Aprovar *${req.displayId}* de ${req.requesterEmail}?`,
+          },
           confirm: { type: "plain_text", text: "Aprovar" },
           deny: { type: "plain_text", text: "Cancelar" },
           style: "primary",
@@ -164,7 +186,7 @@ export async function notifyHead(req: HeadNotification): Promise<void> {
   try {
     await slackPost("chat.postMessage", {
       channel: await resolveDmChannel(TEST_RECIPIENT_USER_ID),
-      text: `Nova solicitação ${req.displayId} — ${req.supplierName} · ${brl(req.totalAmount)}`,
+      text: `Nova solicitação ${req.displayId} — ${req.supplierName} · ${brl(req.totalAmount)}${isRateio ? ` (rateio ${req.allocations!.length} CCs)` : ""}`,
       blocks,
     });
   } catch (err) {

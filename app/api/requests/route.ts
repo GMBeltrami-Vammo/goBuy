@@ -55,27 +55,37 @@ export async function POST(request: Request) {
     totalAmount = payload.items.reduce((s, i) => s + (i.quantity ?? 0) * (i.unit_value ?? 0), 0);
   }
 
-  // Notify the head with Approve/Reject buttons. after() runs the work once
-  // the response is sent and keeps the function alive until it settles — a
-  // bare fire-and-forget promise is killed when the response returns.
+  // Notify head(s) with Approve/Reject buttons. For rateio, all allocation CCs
+  // are shown in a single message. after() keeps the function alive until settled.
   after(async () => {
     try {
-      const { data: cc } = await supabaseAdmin()
-        .from("cost_centers")
-        .select("code, name")
-        .eq("id", payload.cost_center_id ?? 0)
-        .maybeSingle();
+      const requestId = (data as { id: string }).id;
+      const displayId = (data as { display_id: string }).display_id;
+
+      // Fetch all allocations with CC info so rateio is visible in the message.
+      const { data: allocRows } = await supabaseAdmin()
+        .from("request_allocations")
+        .select("percentage, cost_centers(code, name)")
+        .eq("request_id", requestId);
+
+      type AllocRow = { percentage: string | number; cost_centers: { code: string; name: string } | null };
+      const allocations = ((allocRows ?? []) as unknown as AllocRow[]).map((a) => ({
+        ccCode: a.cost_centers?.code ?? "—",
+        ccName: a.cost_centers?.name ?? "—",
+        percentage: Number(a.percentage),
+      }));
 
       await notifyHead({
-        requestId: (data as { id: string }).id,
-        displayId: (data as { display_id: string }).display_id,
+        requestId,
+        displayId,
         requesterEmail,
         supplierName: payload.supplier_name ?? "—",
         totalAmount,
         requestType: payload.request_type ?? "products",
-        costCenterCode: cc?.code ?? null,
-        costCenterName: cc?.name ?? null,
+        costCenterCode: allocations[0]?.ccCode ?? null,
+        costCenterName: allocations[0]?.ccName ?? null,
         justification: payload.justification ?? null,
+        allocations: allocations.length > 1 ? allocations : undefined,
       });
     } catch (err) {
       console.error("[slack notifyHead] failed:", err);
