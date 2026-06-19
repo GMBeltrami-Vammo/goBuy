@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { formatBRL } from "@/lib/format";
-import { COMPANIES, CURRENCIES, CURRENCY_CUSTOM, formatAmount } from "@/lib/payment";
+import { DOC_TYPE_LABEL, formatBRL } from "@/lib/format";
+import { COMPANIES, CURRENCIES, CURRENCY_CUSTOM, allowedDocTypes, formatAmount } from "@/lib/payment";
 import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
-import type { CostCenter, RequestType } from "@/lib/types";
+import type { CostCenter, DocumentType, RequestType } from "@/lib/types";
+
+interface StagedDoc {
+  file: File;
+  docType: DocumentType;
+}
+
+// Documents that may be attached while the request is still pending.
+const CREATE_DOC_TYPES = allowedDocTypes("pending");
 
 interface ItemDraft {
   description: string;
@@ -30,7 +38,7 @@ export function NewRequestModal({
 }: {
   costCenters: CostCenter[];
   onClose: () => void;
-  onSubmitted: (displayId: string) => void;
+  onSubmitted: (displayId: string, note?: string) => void;
 }) {
   useBodyScrollLock();
 
@@ -64,6 +72,9 @@ export function NewRequestModal({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [stagedDocs, setStagedDocs] = useState<StagedDoc[]>([]);
+  const [docType, setDocType] = useState<DocumentType>(CREATE_DOC_TYPES[0]);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const activeCurrency =
     currency === CURRENCY_CUSTOM ? customCurrency.trim().toUpperCase() : currency;
@@ -205,16 +216,46 @@ export function NewRequestModal({
       setServerError("Erro de rede. Verifique sua conexão e tente novamente.");
       return;
     }
-    setSending(false);
 
     if (!res.ok) {
+      setSending(false);
       const body = await res.json().catch(() => ({})) as { error?: string };
       setServerError(body.error ?? "Erro ao enviar solicitação.");
       return;
     }
 
-    const data = await res.json() as { display_id: string };
-    onSubmitted(data.display_id);
+    const data = await res.json() as { id: string; display_id: string };
+
+    // Upload any staged documents now that the request exists. Best-effort:
+    // a failed upload never blocks the request — the user can retry from the
+    // request drawer afterwards.
+    let failed = 0;
+    for (const doc of stagedDocs) {
+      try {
+        const form = new FormData();
+        form.set("file", doc.file);
+        form.set("request_id", data.id);
+        form.set("doc_type", doc.docType);
+        const up = await fetch("/api/documents", { method: "POST", body: form });
+        if (!up.ok) failed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    setSending(false);
+
+    const note =
+      failed > 0
+        ? `Atenção: ${failed} documento(s) não foram anexados — reenvie pela solicitação.`
+        : undefined;
+    onSubmitted(data.display_id, note);
+  };
+
+  const addStagedFiles = (files: FileList | null) => {
+    if (!files) return;
+    const incoming = Array.from(files).map((file) => ({ file, docType }));
+    setStagedDocs((prev) => [...prev, ...incoming]);
+    if (fileRef.current) fileRef.current.value = "";
   };
 
   return (
@@ -659,6 +700,68 @@ export function NewRequestModal({
             />
           </Field>
 
+          {/* Documentos (anexados na submissão) */}
+          <div className="rounded-lg border border-[var(--line)] px-4 py-3">
+            <p className="text-sm font-medium">Documentos (opcional)</p>
+            <p className="mt-0.5 text-xs text-[var(--faint)]">
+              Anexe cotações e contratos agora. Nota fiscal, boleto e demais documentos são
+              enviados após a aprovação, pela própria solicitação.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <select
+                value={docType}
+                onChange={(e) => setDocType(e.target.value as DocumentType)}
+                aria-label="Tipo de documento"
+                className="input w-auto text-xs"
+              >
+                {CREATE_DOC_TYPES.map((t) => (
+                  <option key={t} value={t}>{DOC_TYPE_LABEL[t]}</option>
+                ))}
+              </select>
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                accept="application/pdf,image/png,image/jpeg"
+                className="hidden"
+                onChange={(e) => addStagedFiles(e.target.files)}
+              />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="rounded-lg border border-dashed border-[var(--line-strong)] px-3 py-1.5 text-xs text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              >
+                + Anexar PDF / imagem
+              </button>
+            </div>
+            {stagedDocs.length > 0 && (
+              <ul className="mt-3 space-y-1.5">
+                {stagedDocs.map((d, i) => (
+                  <li
+                    key={i}
+                    className="flex items-center gap-2.5 rounded-lg border border-[var(--line)] px-3 py-2 text-sm"
+                  >
+                    <span className="v-tabular rounded bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-bold uppercase text-[var(--accent)]">
+                      {DOC_TYPE_LABEL[d.docType]}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{d.file.name}</span>
+                    <span className="v-tabular shrink-0 text-[10px] text-[var(--faint)]">
+                      {Math.max(1, Math.round(d.file.size / 1024))} KB
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setStagedDocs((prev) => prev.filter((_, idx) => idx !== i))}
+                      className="shrink-0 text-[var(--faint)] hover:text-[var(--rejected)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                      aria-label={`Remover ${d.file.name}`}
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           {serverError && (
             <p
               role="alert"
@@ -675,9 +778,11 @@ export function NewRequestModal({
               <span className="text-[var(--muted)]">Total da solicitação </span>
               <span className="text-lg font-bold">{fmt(total)}</span>
             </p>
-            <p className="mt-0.5 text-[11px] text-[var(--faint)]">
-              Documentos de suporte podem ser enviados após a submissão.
-            </p>
+            {stagedDocs.length > 0 && (
+              <p className="mt-0.5 v-tabular text-[11px] text-[var(--faint)]">
+                {stagedDocs.length} documento(s) serão anexados.
+              </p>
+            )}
           </div>
           <div className="flex gap-2">
             <button

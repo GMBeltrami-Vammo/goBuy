@@ -91,10 +91,77 @@ html {
 }
 
 body {
-  background: var(--bg);
+  /* Transparent so the fixed .aurora layer (z-index:-1) shows through; the
+     base page color lives on <html> above. */
+  background: transparent;
   color: var(--ink);
   font-family: var(--font-sans), sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* ── Ambient aurora — soft neon-blue glow in the empty gutters ──────────
+   Fixed full-viewport layer behind all content. Off unless <html> has the
+   .fx-on class (toggled in the header, persisted to localStorage, default on).
+   Heavily blurred radial blobs in the brand accent; slow, no bounce. */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  display: none;
+  opacity: 0.7;
+}
+.dark .aurora {
+  opacity: 0.9;
+}
+html.fx-on .aurora {
+  display: block;
+}
+.aurora span {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(80px);
+  will-change: transform;
+}
+.aurora span:nth-child(1) {
+  width: 40vw;
+  height: 40vw;
+  left: -12vw;
+  top: -8vw;
+  background: radial-gradient(circle, rgba(46, 194, 255, 0.3), transparent 68%);
+  animation: aurora-a 24s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+}
+.aurora span:nth-child(2) {
+  width: 34vw;
+  height: 34vw;
+  right: -10vw;
+  top: 28%;
+  background: radial-gradient(circle, rgba(46, 194, 255, 0.22), transparent 68%);
+  animation: aurora-b 30s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+}
+.aurora span:nth-child(3) {
+  width: 30vw;
+  height: 30vw;
+  left: 22%;
+  bottom: -14vw;
+  background: radial-gradient(circle, rgba(46, 194, 255, 0.16), transparent 68%);
+  animation: aurora-c 34s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+}
+@keyframes aurora-a {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(6vw, 4vw, 0); }
+}
+@keyframes aurora-b {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-5vw, 3vw, 0); }
+}
+@keyframes aurora-c {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(3vw, -5vw, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aurora span { animation: none; }
 }
 
 /* Tabular figures for IDs, money and any column of numbers (DS §08). */

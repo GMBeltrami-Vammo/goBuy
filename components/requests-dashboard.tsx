@@ -5,9 +5,29 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NewRequestModal } from "@/components/new-request-modal";
 import { RequestDrawer } from "@/components/request-drawer";
 import { StatusBadge, TypeBadge } from "@/components/status-badge";
-import { formatBRL, formatDate } from "@/lib/format";
+import { brtYmd, formatBRL, formatDate, formatDateOnlyBR, STATUS_LABEL } from "@/lib/format";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { CostCenter, PurchaseRequest } from "@/lib/types";
+
+const IN_PROGRESS = ["approved", "awaiting_finance", "awaiting_payment"];
+
+// Parse dd/mm/yyyy → yyyy-mm-dd. Returns "" for incomplete or invalid input.
+const parseDDMMYYYY = (s: string): string => {
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return "";
+  const [, dd, mm, yyyy] = m;
+  const d = new Date(`${yyyy}-${mm}-${dd}`);
+  if (isNaN(d.getTime())) return "";
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+// dd/mm/yyyy auto-slash mask for the date inputs.
+const maskDate = (raw: string): string => {
+  const digits = raw.replace(/\D/g, "").slice(0, 8);
+  if (digits.length > 4) return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+  if (digits.length > 2) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return digits;
+};
 
 export function RequestsDashboard({
   email,
@@ -27,12 +47,17 @@ export function RequestsDashboard({
   const [openRequest, setOpenRequest] = useState<PurchaseRequest | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [ccFilter, setCcFilter] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [dateField, setDateField] = useState<"created" | "payment">("created");
   const autoOpened = useRef(false);
 
   const load = useCallback(async () => {
     const { data } = await supabaseBrowser(supabaseToken)
       .from("purchase_requests")
-      .select("*, cost_centers(code, name, department)")
+      .select("*, cost_centers(code, name, department, cost_center_heads(head_name, head_email))")
       .eq("requester_email", email)
       .order("created_at", { ascending: false });
     setRequests((data as unknown as PurchaseRequest[]) ?? []);
@@ -58,7 +83,7 @@ export function RequestsDashboard({
     if (requests === null) return null;
     const byStatus = (...ss: string[]) => requests.filter((r) => ss.includes(r.status));
     const sum = (rs: PurchaseRequest[]) => rs.reduce((a, r) => a + Number(r.total_amount), 0);
-    const inProgress = byStatus("approved", "awaiting_finance", "awaiting_payment");
+    const inProgress = byStatus(...IN_PROGRESS);
     return {
       pending: byStatus("pending").length,
       inProgress: inProgress.length,
@@ -69,9 +94,48 @@ export function RequestsDashboard({
     };
   }, [requests]);
 
+  // Cost centers present in the user's own requests, for the CC filter.
+  const ccOptions = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const r of requests ?? []) {
+      if (r.cost_centers) map.set(r.cost_center_id, `${r.cost_centers.code} — ${r.cost_centers.name}`);
+    }
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [requests]);
+
+  const filtered = useMemo(() => {
+    const fromYMD = parseDDMMYYYY(dateFrom);
+    const toYMD = parseDDMMYYYY(dateTo);
+    let list = requests ?? [];
+    if (statusFilter === "in_progress") list = list.filter((r) => IN_PROGRESS.includes(r.status));
+    else if (statusFilter !== "all") list = list.filter((r) => r.status === statusFilter);
+    if (ccFilter !== "all") list = list.filter((r) => String(r.cost_center_id) === ccFilter);
+    if (fromYMD) {
+      list = list.filter((r) => {
+        const d = dateField === "created" ? brtYmd(r.created_at) : r.expected_payment_date ?? "";
+        return !!d && d >= fromYMD;
+      });
+    }
+    if (toYMD) {
+      list = list.filter((r) => {
+        const d = dateField === "created" ? brtYmd(r.created_at) : r.expected_payment_date ?? "";
+        return !!d && d <= toYMD;
+      });
+    }
+    return list;
+  }, [requests, statusFilter, ccFilter, dateFrom, dateTo, dateField]);
+
   const flash = (msg: string) => {
     setToast(msg);
-    window.setTimeout(() => setToast(null), 4500);
+    window.setTimeout(() => setToast(null), 5500);
+  };
+
+  const hasFilters = statusFilter !== "all" || ccFilter !== "all" || !!dateFrom || !!dateTo;
+  const clearFilters = () => {
+    setStatusFilter("all");
+    setCcFilter("all");
+    setDateFrom("");
+    setDateTo("");
   };
 
   return (
@@ -101,20 +165,36 @@ export function RequestsDashboard({
       )}
 
       <div className="reveal reveal-2 mt-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <SummaryCard label="Aguardando" value={summary ? String(summary.pending) : null} tone="pending" />
+        <SummaryCard
+          label="Aguardando"
+          value={summary ? String(summary.pending) : null}
+          tone="pending"
+          active={statusFilter === "pending"}
+          onClick={() => setStatusFilter((s) => (s === "pending" ? "all" : "pending"))}
+        />
         <SummaryCard
           label="Em andamento"
           value={summary ? String(summary.inProgress) : null}
           sub={summary ? formatBRL(summary.inProgressValue) : undefined}
           tone="accent"
+          active={statusFilter === "in_progress"}
+          onClick={() => setStatusFilter((s) => (s === "in_progress" ? "all" : "in_progress"))}
         />
         <SummaryCard
           label="Pagas"
           value={summary ? String(summary.paid) : null}
           sub={summary ? formatBRL(summary.paidValue) : undefined}
           tone="paid"
+          active={statusFilter === "paid"}
+          onClick={() => setStatusFilter((s) => (s === "paid" ? "all" : "paid"))}
         />
-        <SummaryCard label="Total solicitado" value={summary ? formatBRL(summary.totalValue) : null} small />
+        <SummaryCard
+          label="Total solicitado"
+          value={summary ? formatBRL(summary.totalValue) : null}
+          small
+          active={statusFilter === "all" && !hasFilters}
+          onClick={clearFilters}
+        />
       </div>
 
       <div className="reveal reveal-3 mt-8 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
@@ -123,8 +203,83 @@ export function RequestsDashboard({
             Minhas solicitações
           </h2>
           <span className="v-tabular text-[11px] text-[var(--faint)]">
-            {requests?.length ?? "—"}
+            {requests === null ? "—" : `${filtered.length} de ${requests.length}`}
           </span>
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--line)] px-5 py-2.5">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            aria-label="Filtrar por status"
+            className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
+          >
+            <option value="all">Todos os status</option>
+            <option value="pending">Aguardando</option>
+            <option value="in_progress">Em andamento</option>
+            <option value="approved">{STATUS_LABEL.approved}</option>
+            <option value="awaiting_finance">{STATUS_LABEL.awaiting_finance}</option>
+            <option value="awaiting_payment">{STATUS_LABEL.awaiting_payment}</option>
+            <option value="paid">{STATUS_LABEL.paid}</option>
+            <option value="rejected">{STATUS_LABEL.rejected}</option>
+            <option value="cancelled">{STATUS_LABEL.cancelled}</option>
+          </select>
+          <select
+            value={ccFilter}
+            onChange={(e) => setCcFilter(e.target.value)}
+            aria-label="Filtrar por centro de custo"
+            className="max-w-48 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
+          >
+            <option value="all">Todos os centros de custo</option>
+            {ccOptions.map(([id, label]) => (
+              <option key={id} value={String(id)}>{label}</option>
+            ))}
+          </select>
+          <div className="flex items-center gap-0.5 rounded-md border border-[var(--line)] p-0.5">
+            {(["created", "payment"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setDateField(f)}
+                className={`rounded px-2 py-0.5 text-[11px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
+                  dateField === f
+                    ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                    : "text-[var(--muted)] hover:text-[var(--ink)]"
+                }`}
+              >
+                {f === "created" ? "Solicitação" : "Pagamento"}
+              </button>
+            ))}
+          </div>
+          <input
+            type="text"
+            inputMode="numeric"
+            maxLength={10}
+            placeholder="dd/mm/yyyy"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(maskDate(e.target.value))}
+            className="w-24 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
+            aria-label="De (dd/mm/yyyy)"
+          />
+          <span className="text-[11px] text-[var(--faint)]">—</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            maxLength={10}
+            placeholder="dd/mm/yyyy"
+            value={dateTo}
+            onChange={(e) => setDateTo(maskDate(e.target.value))}
+            className="w-24 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
+            aria-label="Até (dd/mm/yyyy)"
+          />
+          {hasFilters && (
+            <button
+              onClick={clearFilters}
+              className="text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
+              Limpar filtros
+            </button>
+          )}
         </div>
 
         {requests === null ? (
@@ -143,69 +298,73 @@ export function RequestsDashboard({
               Criar a primeira →
             </button>
           </div>
+        ) : filtered.length === 0 ? (
+          <p className="px-5 py-14 text-center text-sm text-[var(--faint)]">
+            Nenhuma solicitação corresponde aos filtros.
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full" aria-label="Minhas solicitações de compra">
               <thead className="hidden sm:table-header-group">
                 <tr className="border-b border-[var(--line)]">
-                  <th scope="col" className="w-[90px] px-5 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">
-                    ID
-                  </th>
-                  <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">
-                    Fornecedor
-                  </th>
-                  <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">
-                    Tipo
-                  </th>
-                  <th scope="col" className="w-[110px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">
-                    Valor
-                  </th>
-                  <th scope="col" className="w-[90px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">
-                    Data
-                  </th>
-                  <th scope="col" className="w-[132px] px-5 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">
-                    Status
-                  </th>
+                  <th scope="col" className="w-[90px] px-5 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">ID</th>
+                  <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Fornecedor</th>
+                  <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Tipo</th>
+                  <th scope="col" className="w-[110px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Valor</th>
+                  <th scope="col" className="w-[90px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Dt. solicitação</th>
+                  <th scope="col" className="w-[90px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Pag. previsto</th>
+                  <th scope="col" className="w-[132px] px-5 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {requests.map((r) => (
-                  <tr
-                    key={r.id}
-                    onClick={() => setOpenRequest(r)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setOpenRequest(r);
-                      }
-                    }}
-                    tabIndex={0}
-                    className="table-row-hover cursor-pointer border-b border-[var(--line)] last:border-b-0 focus-visible:outline-none focus-visible:bg-[var(--surface-2)]"
-                    aria-label={`Solicitação ${r.display_id} — ${r.supplier_name}`}
-                  >
-                    <td className="px-5 py-3.5 v-tabular text-xs font-semibold text-[var(--accent)]">
-                      {r.display_id}
-                    </td>
-                    <td className="px-2 py-3.5">
-                      <div className="text-sm font-medium">{r.supplier_name}</div>
-                      <div className="truncate text-xs text-[var(--muted)]">
-                        {r.cost_centers?.department} · {r.cost_centers?.name}
-                      </div>
-                    </td>
-                    <td className="hidden px-2 py-3.5 sm:table-cell">
-                      <TypeBadge type={r.request_type} />
-                    </td>
-                    <td className="hidden px-2 py-3.5 text-right v-tabular text-sm font-semibold sm:table-cell">
-                      {formatBRL(Number(r.total_amount))}
-                    </td>
-                    <td className="hidden px-2 py-3.5 text-right v-tabular text-xs text-[var(--muted)] sm:table-cell">
-                      {formatDate(r.created_at)}
-                    </td>
-                    <td className="px-5 py-3.5 text-right">
-                      <StatusBadge status={r.status} />
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map((r) => {
+                  const heads = (r.cost_centers?.cost_center_heads ?? [])
+                    .map((h) => h.head_name ?? h.head_email.split("@")[0])
+                    .join(", ");
+                  return (
+                    <tr
+                      key={r.id}
+                      onClick={() => setOpenRequest(r)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setOpenRequest(r);
+                        }
+                      }}
+                      tabIndex={0}
+                      className="table-row-hover cursor-pointer border-b border-[var(--line)] last:border-b-0 focus-visible:outline-none focus-visible:bg-[var(--surface-2)]"
+                      aria-label={`Solicitação ${r.display_id} — ${r.supplier_name}`}
+                    >
+                      <td className="px-5 py-3.5 align-top v-tabular text-xs font-semibold text-[var(--accent)]">
+                        {r.display_id}
+                      </td>
+                      <td className="px-2 py-3.5 align-top">
+                        <div className="text-sm font-medium">{r.supplier_name}</div>
+                        <div className="truncate text-xs text-[var(--muted)]">
+                          {r.cost_centers?.department} · {r.cost_centers?.name}
+                        </div>
+                        {heads && (
+                          <div className="truncate text-[10px] text-[var(--faint)]">Head: {heads}</div>
+                        )}
+                      </td>
+                      <td className="hidden px-2 py-3.5 align-top sm:table-cell">
+                        <TypeBadge type={r.request_type} />
+                      </td>
+                      <td className="hidden px-2 py-3.5 text-right align-top v-tabular text-sm font-semibold sm:table-cell">
+                        {formatBRL(Number(r.total_amount))}
+                      </td>
+                      <td className="hidden px-2 py-3.5 text-right align-top v-tabular text-xs text-[var(--muted)] sm:table-cell">
+                        {formatDate(r.created_at)}
+                      </td>
+                      <td className="hidden px-2 py-3.5 text-right align-top v-tabular text-xs text-[var(--muted)] sm:table-cell">
+                        {r.expected_payment_date ? formatDateOnlyBR(r.expected_payment_date) : "—"}
+                      </td>
+                      <td className="px-5 py-3.5 text-right align-top">
+                        <StatusBadge status={r.status} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -216,9 +375,12 @@ export function RequestsDashboard({
         <NewRequestModal
           costCenters={costCenters}
           onClose={() => setShowNew(false)}
-          onSubmitted={(displayId) => {
+          onSubmitted={(displayId, note) => {
             setShowNew(false);
-            flash(`Solicitação ${displayId} enviada. O head do centro de custo será notificado.`);
+            flash(
+              `Solicitação ${displayId} enviada. O head do centro de custo será notificado.` +
+                (note ? ` ${note}` : ""),
+            );
             void load();
           }}
         />
@@ -261,17 +423,30 @@ function SummaryCard({
   sub,
   tone,
   small,
+  active,
+  onClick,
 }: {
   label: string;
   value: string | null;
   sub?: string;
   tone?: "pending" | "approved" | "paid" | "accent";
   small?: boolean;
+  active?: boolean;
+  onClick?: () => void;
 }) {
+  const loading = value === null;
   return (
-    <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 shadow-[var(--shadow)]">
+    <button
+      type="button"
+      onClick={loading ? undefined : onClick}
+      aria-pressed={active}
+      disabled={loading}
+      className={`rounded-xl border bg-[var(--surface)] p-4 text-left shadow-[var(--shadow)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
+        active ? "border-[var(--accent)] ring-1 ring-[var(--accent)]" : "border-[var(--line)] hover:border-[var(--line-strong)]"
+      } ${loading ? "cursor-default" : "cursor-pointer"}`}
+    >
       <p className="v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">{label}</p>
-      {value === null ? (
+      {loading ? (
         <div className="mt-2 h-7 w-20 animate-pulse rounded-md bg-[var(--surface-2)]" />
       ) : (
         <p
@@ -281,9 +456,7 @@ function SummaryCard({
           {value}
         </p>
       )}
-      {sub && value !== null && (
-        <p className="mt-0.5 v-tabular text-xs text-[var(--muted)]">{sub}</p>
-      )}
-    </div>
+      {sub && !loading && <p className="mt-0.5 v-tabular text-xs text-[var(--muted)]">{sub}</p>}
+    </button>
   );
 }

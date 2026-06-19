@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { signOut } from "@/auth";
+import { FxToggle } from "@/components/fx-toggle";
 import { NavTabs } from "@/components/nav-tabs";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getSessionContext } from "@/lib/auth";
@@ -25,6 +26,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </span>
         </div>
         <div className="flex items-center gap-2.5">
+          <FxToggle />
           <ThemeToggle />
           <div className="flex items-center gap-2 rounded-full border border-[var(--line)] py-1 pl-1 pr-3">
             {ctx.avatarUrl ? (
