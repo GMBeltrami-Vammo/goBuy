@@ -105,7 +105,7 @@ export async function POST(request: Request) {
       {
         error:
           req.status === "pending"
-            ? "Enquanto pendente, apenas cotações, contratos e boleto podem ser anexados."
+            ? "Enquanto pendente, apenas cotações e contratos podem ser anexados."
             : "Tipo de documento não permitido neste status.",
       },
       { status: 409 },

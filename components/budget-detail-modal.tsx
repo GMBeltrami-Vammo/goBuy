@@ -313,6 +313,33 @@ export function BudgetDetailModal({
             )}
           </section>
 
+          {/* Pending requests waiting for approval */}
+          {monthPending.length > 0 && (
+            <section>
+              <h3 className="mb-2 v-tabular text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--faint)]">
+                Pendentes de aprovação · {monthPending.length} · {formatBRL(pendingTotal)}
+              </h3>
+              <ul className="max-h-48 overflow-y-auto rounded-lg border border-[var(--pending)]">
+                {monthPending.map((r) => (
+                  <li key={r.id}>
+                    <button
+                      onClick={() => onOpenRequest(r)}
+                      className="flex w-full items-center gap-3 border-b border-[var(--line)] px-4 py-2.5 text-left text-sm transition last:border-b-0 hover:bg-[var(--surface-2)]"
+                    >
+                      <span className="v-tabular text-xs font-semibold text-[var(--accent)]">
+                        {r.display_id}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{r.supplier_name}</span>
+                      <span className="v-tabular text-sm font-semibold text-[var(--pending)]">
+                        {formatBRL(Number(r.total_amount))}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
           {/* Month's committed requests */}
           {monthCommitted.length > 0 && (
             <section>

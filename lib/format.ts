@@ -4,6 +4,13 @@ export const formatBRL = (n: number) =>
 export const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
+/** Safe formatter for date-only fields (yyyy-mm-dd). Splits the string so
+ *  it is never parsed as UTC midnight, avoiding a 1-day shift in BRT (UTC-3). */
+export const formatDateOnlyBR = (ymd: string): string => {
+  const [y, m, d] = ymd.split("-");
+  return `${d}/${m}/${y}`;
+};
+
 export const formatDateTime = (iso: string) =>
   new Date(iso).toLocaleString("pt-BR", {
     day: "2-digit",
@@ -65,6 +72,7 @@ export const DOC_TYPE_LABEL: Record<string, string> = {
 export const EVENT_LABEL: Record<string, string> = {
   created: "Solicitação criada",
   approved: "Aprovada",
+  partial_approval: "Aprovação parcial — aguardando outros heads",
   rejected: "Recusada",
   cancelled: "Cancelada",
   paid: "Pagamento realizado",

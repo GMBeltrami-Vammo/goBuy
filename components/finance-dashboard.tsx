@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { RequestDrawer } from "@/components/request-drawer";
 import { StatusBadge, TypeBadge } from "@/components/status-badge";
-import { formatBRL, formatDate, STATUS_LABEL, TYPE_LABEL } from "@/lib/format";
+import { formatBRL, formatDate, formatDateOnlyBR, STATUS_LABEL, TYPE_LABEL } from "@/lib/format";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { PurchaseRequest } from "@/lib/types";
 
@@ -28,6 +28,9 @@ export function FinanceDashboard({
   const [toast, setToast] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [dateField, setDateField] = useState<"created" | "payment">("created");
   const autoOpened = useRef(false);
 
   useEffect(() => {
@@ -42,7 +45,7 @@ export function FinanceDashboard({
   const load = useCallback(async () => {
     const { data } = await supabaseBrowser(supabaseToken)
       .from("purchase_requests")
-      .select("*, cost_centers(code, name, department)")
+      .select("*, cost_centers(code, name, department, cost_center_heads(head_name, head_email))")
       .order("created_at", { ascending: false })
       .limit(1000);
     setRequests((data as unknown as PurchaseRequest[]) ?? []);
@@ -72,8 +75,24 @@ export function FinanceDashboard({
           r.requester_email.toLowerCase().includes(q),
       );
     }
+    if (dateFrom) {
+      list = list.filter((r) => {
+        const d = dateField === "created"
+          ? r.created_at.slice(0, 10)
+          : r.expected_payment_date ?? "";
+        return d >= dateFrom;
+      });
+    }
+    if (dateTo) {
+      list = list.filter((r) => {
+        const d = dateField === "created"
+          ? r.created_at.slice(0, 10)
+          : r.expected_payment_date ?? "";
+        return !!d && d <= dateTo;
+      });
+    }
     return list;
-  }, [requests, statusFilter, typeFilter, deptFilter, search]);
+  }, [requests, statusFilter, typeFilter, deptFilter, search, dateFrom, dateTo, dateField]);
 
   const toValidate = useMemo(
     () => (requests ?? []).filter((r) => r.status === "awaiting_finance"),
@@ -222,7 +241,7 @@ export function FinanceDashboard({
                     {r.supplier_name}
                   </span>
                   <span className="hidden text-xs text-[var(--muted)] sm:block">
-                    {r.expected_payment_date ? `Previsão ${formatDate(r.expected_payment_date)}` : ""}
+                    {r.expected_payment_date ? `Previsão ${formatDateOnlyBR(r.expected_payment_date)}` : ""}
                   </span>
                   <span className="v-tabular text-sm font-bold">
                     {formatBRL(Number(r.total_amount))}
@@ -287,34 +306,86 @@ export function FinanceDashboard({
 
       {/* All requests */}
       <div className="reveal reveal-3 mt-7 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
-        <div className="flex flex-wrap items-center gap-2 border-b border-[var(--line)] px-5 py-3.5">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por ID, fornecedor ou solicitante…"
-            className="input max-w-64 text-xs"
-          />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="input w-auto text-xs">
-            <option value="all">Todos os status</option>
-            {Object.entries(STATUS_LABEL).map(([v, l]) => (
-              <option key={v} value={v}>{l}</option>
-            ))}
-          </select>
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="input w-auto text-xs">
-            <option value="all">Todos os tipos</option>
-            {Object.entries(TYPE_LABEL).map(([v, l]) => (
-              <option key={v} value={v}>{l}</option>
-            ))}
-          </select>
-          <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className="input w-auto text-xs">
-            <option value="all">Todos os departamentos</option>
-            {departments.map((d) => (
-              <option key={d}>{d}</option>
-            ))}
-          </select>
-          <span className="ml-auto v-tabular text-[11px] text-[var(--faint)]">
-            {filtered.length} de {requests?.length ?? 0}
-          </span>
+        <div className="space-y-2 border-b border-[var(--line)] px-5 py-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar por ID, fornecedor ou solicitante…"
+              className="max-w-56 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
+            />
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]">
+              <option value="all">Todos os status</option>
+              {Object.entries(STATUS_LABEL).map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </select>
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]">
+              <option value="all">Todos os tipos</option>
+              {Object.entries(TYPE_LABEL).map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </select>
+            <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]">
+              <option value="all">Todos os departamentos</option>
+              {departments.map((d) => (
+                <option key={d}>{d}</option>
+              ))}
+            </select>
+            <span className="ml-auto v-tabular text-[11px] text-[var(--faint)]">
+              {filtered.length} de {requests?.length ?? 0}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="v-tabular text-[10px] uppercase tracking-[0.15em] text-[var(--faint)]">Por</span>
+            <div className="flex items-center gap-0.5 rounded-md border border-[var(--line)] p-0.5">
+              {(["created", "payment"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setDateField(f)}
+                  className={`rounded px-2 py-0.5 text-[11px] font-medium transition ${
+                    dateField === f
+                      ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                      : "text-[var(--muted)] hover:text-[var(--ink)]"
+                  }`}
+                >
+                  {f === "created" ? "Solicitação" : "Pagamento"}
+                </button>
+              ))}
+            </div>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
+              title="De"
+            />
+            <span className="text-[11px] text-[var(--faint)]">—</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
+              title="Até"
+            />
+            {(dateFrom || dateTo) && (
+              <button
+                onClick={() => { setDateFrom(""); setDateTo(""); }}
+                className="text-[11px] font-semibold text-[var(--accent)] hover:underline"
+              >
+                Limpar datas
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Column headers (desktop only) */}
+        <div className="hidden border-b border-[var(--line)] bg-[var(--surface-2)] px-5 py-2 sm:grid sm:grid-cols-[90px_1fr_170px_auto_100px_90px_90px_120px] sm:gap-x-4">
+          {["Solicitação", "Solicitante", "Departamento", "Tipo", "Valor", "Dt. solicitação", "Pag. previsto", "Status"].map((h) => (
+            <span key={h} className="v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">
+              {h}
+            </span>
+          ))}
         </div>
 
         {requests === null ? (
@@ -329,7 +400,7 @@ export function FinanceDashboard({
               <li key={r.id}>
                 <button
                   onClick={() => setOpenRequest(r)}
-                  className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-1 border-b border-[var(--line)] px-5 py-3 text-left transition last:border-b-0 hover:bg-[var(--surface-2)] sm:grid-cols-[90px_1fr_130px_auto_110px_90px_132px]"
+                  className="grid w-full grid-cols-[auto_1fr_auto] items-start gap-x-4 gap-y-1 border-b border-[var(--line)] px-5 py-3 text-left transition last:border-b-0 hover:bg-[var(--surface-2)] sm:grid-cols-[90px_1fr_170px_auto_100px_90px_90px_120px]"
                 >
                   <span className="v-tabular text-xs font-semibold text-[var(--accent)]">
                     {r.display_id}
@@ -340,8 +411,16 @@ export function FinanceDashboard({
                       {r.requester_email}
                     </span>
                   </span>
-                  <span className="hidden truncate text-xs text-[var(--muted)] sm:block">
-                    {r.cost_centers?.department}
+                  <span className="hidden sm:block">
+                    <span className="block truncate text-xs font-medium">{r.cost_centers?.department}</span>
+                    <span className="block truncate text-[11px] text-[var(--faint)]">
+                      {r.cost_centers?.code} — {r.cost_centers?.name}
+                    </span>
+                    {r.cost_centers?.cost_center_heads?.slice(0, 2).map((h) => (
+                      <span key={h.head_email} className="block truncate text-[10px] text-[var(--muted)]">
+                        {h.head_name ?? h.head_email.split("@")[0]}
+                      </span>
+                    ))}
                   </span>
                   <span className="hidden sm:block">
                     <TypeBadge type={r.request_type} />
@@ -351,6 +430,9 @@ export function FinanceDashboard({
                   </span>
                   <span className="hidden text-right v-tabular text-xs text-[var(--muted)] sm:block">
                     {formatDate(r.created_at)}
+                  </span>
+                  <span className="hidden text-right v-tabular text-xs text-[var(--muted)] sm:block">
+                    {r.expected_payment_date ? formatDateOnlyBR(r.expected_payment_date) : "—"}
                   </span>
                   <span className="justify-self-end">
                     <StatusBadge status={r.status} />

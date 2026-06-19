@@ -8,6 +8,7 @@ import {
   EVENT_LABEL,
   formatBRL,
   formatDate,
+  formatDateOnlyBR,
   formatDateTime,
 } from "@/lib/format";
 import {
@@ -98,7 +99,7 @@ export function RequestDrawer({
         .order("created_at"),
       supabase
         .from("request_allocations")
-        .select("cost_center_id, percentage, cost_centers(code, name, department)")
+        .select("cost_center_id, percentage, approved_at, approved_by_email, cost_centers(code, name, department)")
         .eq("request_id", request.id),
     ]);
     setItems((itemsRes.data as unknown as RequestItem[]) ?? []);
@@ -154,7 +155,7 @@ export function RequestDrawer({
     }
     onChanged(
       action === "approve"
-        ? `${request.display_id} aprovada.`
+        ? `Aprovação de ${request.display_id} registrada.`
         : `${request.display_id} recusada.`,
     );
   };
@@ -206,7 +207,7 @@ export function RequestDrawer({
     onChanged(
       `${request.display_id} enviada ao financeiro.` +
         (b.expected_payment_date
-          ? ` Pagamento previsto: ${formatDate(b.expected_payment_date)}.`
+          ? ` Pagamento previsto: ${formatDateOnlyBR(b.expected_payment_date!)}.`
           : ""),
     );
   };
@@ -313,13 +314,16 @@ export function RequestDrawer({
               <Meta label="Motivo da recusa" value={request.decision_reason} full />
             )}
             {request.nf_number && <Meta label="Nº da nota fiscal" value={request.nf_number} />}
+            {request.company && (
+              <Meta label="Empresa responsável" value={request.company} />
+            )}
             {request.payment_due_date && (
-              <Meta label="Vencimento" value={formatDate(request.payment_due_date)} />
+              <Meta label="Vencimento" value={formatDateOnlyBR(request.payment_due_date)} />
             )}
             {request.expected_payment_date && (
               <Meta
                 label="Previsão de pagamento"
-                value={formatDate(request.expected_payment_date)}
+                value={formatDateOnlyBR(request.expected_payment_date)}
                 strong
               />
             )}
@@ -346,23 +350,40 @@ export function RequestDrawer({
           </dl>
 
           {/* Rateio entre departamentos */}
-          {allocations.length > 1 && (
-            <section>
-              <SectionTitle>Rateio entre departamentos</SectionTitle>
-              <ul className="space-y-1 text-sm">
-                {allocations.map((a) => (
-                  <li key={a.cost_center_id} className="flex justify-between gap-2">
-                    <span className="min-w-0 truncate text-[var(--muted)]">
-                      {a.cost_centers
-                        ? `${a.cost_centers.code} — ${a.cost_centers.department}: ${a.cost_centers.name}`
-                        : a.cost_center_id}
-                    </span>
-                    <span className="v-tabular font-semibold">{Number(a.percentage)}%</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
+          {allocations.length > 1 && (() => {
+            const approved = allocations.filter((a) => a.approved_at).length;
+            const total = allocations.length;
+            return (
+              <section>
+                <SectionTitle>
+                  Rateio entre departamentos
+                  {request.status === "pending" && ` · ${approved}/${total} aprovados`}
+                </SectionTitle>
+                <ul className="space-y-1.5 text-sm">
+                  {allocations.map((a) => (
+                    <li key={a.cost_center_id} className="flex items-start gap-2">
+                      {request.status === "pending" && (
+                        <span className={`mt-0.5 shrink-0 text-xs font-bold ${a.approved_at ? "text-[var(--approved)]" : "text-[var(--pending)]"}`}>
+                          {a.approved_at ? "✓" : "⏳"}
+                        </span>
+                      )}
+                      <span className="min-w-0 flex-1 truncate text-[var(--muted)]">
+                        {a.cost_centers
+                          ? `${a.cost_centers.code} — ${a.cost_centers.department}: ${a.cost_centers.name}`
+                          : a.cost_center_id}
+                        {a.approved_by_email && (
+                          <span className="ml-1 text-[11px] text-[var(--faint)]">
+                            ({a.approved_by_email.split("@")[0]})
+                          </span>
+                        )}
+                      </span>
+                      <span className="v-tabular shrink-0 font-semibold">{Number(a.percentage)}%</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })()}
 
           {request.justification && (
             <section>
@@ -403,7 +424,7 @@ export function RequestDrawer({
                 Nenhum documento.{" "}
                 {canUpload &&
                   (request.status === "pending"
-                    ? "Enquanto pendente, anexe cotações, contratos ou boleto."
+                    ? "Enquanto pendente, anexe cotações e contratos."
                     : "Anexe a nota fiscal e demais documentos abaixo.")}
               </p>
             ) : (
@@ -458,7 +479,7 @@ export function RequestDrawer({
                   {busy
                     ? "Enviando…"
                     : request.status === "pending"
-                      ? "Anexar PDF (cotação, contrato, boleto)"
+                      ? "Anexar PDF (cotação, contrato)"
                       : "Anexar PDF (NF, boleto…)"}
                 </button>
               </div>

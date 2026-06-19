@@ -13,23 +13,24 @@ export const runtime = "nodejs";
 const SIGNED_URL_TTL = 10 * 365 * 24 * 60 * 60;
 
 const HEADERS = [
-  "Data Solicitação",
-  "Payment Type",
-  "Fornecedor",
-  "Valor",
-  "NF",
-  "Descrição",
-  "Data do pagamento",
-  "Departamento",
-  "Classe",
-  "Comentários",
-  "Status",
-  "Link da NF",
-  "Endereço de e-mail",
-  "Boleto",
-  "",
-  "Observação",
-  "Moeda",
+  "Data Solicitação",      // A
+  "Payment Type",          // B
+  "Fornecedor",            // C
+  "Valor",                 // D
+  "NF",                    // E
+  "Descrição",             // F
+  "Data do pagamento",     // G
+  "Departamento",          // H
+  "Classe",                // I
+  "Comentários",           // J
+  "Status",                // K
+  "Link da NF",            // L
+  "Endereço de e-mail",    // M
+  "Boleto",                // N
+  "Observação",            // O
+  "Houve desconto na fatura? Se sim, informe abaixo.", // P
+  "O pagamento será de qual empresa?",                 // Q
+  "Qual a moeda?",                                     // R
 ];
 
 interface ExportRow {
@@ -39,6 +40,7 @@ interface ExportRow {
   supplier_name: string;
   total_amount: number;
   currency: string;
+  company: string | null;
   justification: string | null;
   requester_email: string;
   nf_number: string | null;
@@ -119,7 +121,7 @@ export async function GET(request: Request) {
     .from("purchase_requests")
     .select(
       `id, display_id, request_type, supplier_name,
-       total_amount, currency, justification, requester_email, nf_number,
+       total_amount, currency, company, justification, requester_email, nf_number,
        payment_type, expected_payment_date, finance_submitted_at,
        request_allocations(percentage, cost_centers(code, name, department))`,
     )
@@ -210,15 +212,16 @@ export async function GET(request: Request) {
         "Lançamento - goBuy",
         nfLink,
         row.requester_email,
-        boletoLink,
-        null, // (coluna em branco)
-        null, // Observação
-        currencyLabel(row.currency || "BRL"),
+        boletoLink,          // N
+        null,                // O – Observação (blank/manual)
+        null,                // P – Desconto (blank/manual)
+        row.company ?? "Vammo Brasil", // Q – Empresa
+        currencyLabel(row.currency || "BRL"), // R – Moeda
       ]);
     }
 
     sheet.columns.forEach((col, i) => {
-      col.width = [20, 22, 30, 14, 16, 40, 16, 40, 10, 14, 18, 50, 30, 50, 6, 14, 22][i] ?? 14;
+      col.width = [20, 22, 30, 14, 16, 40, 16, 40, 10, 14, 18, 50, 30, 50, 14, 36, 32, 22][i] ?? 14;
     });
     // Departamento (col 8) holds one rateio line per allocation — wrap so the
     // \n separators render as multiple lines within the single row.

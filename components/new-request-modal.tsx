@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { formatBRL } from "@/lib/format";
-import { CURRENCIES, CURRENCY_CUSTOM, formatAmount } from "@/lib/payment";
+import { COMPANIES, CURRENCIES, CURRENCY_CUSTOM, formatAmount } from "@/lib/payment";
 import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
 import type { CostCenter, RequestType } from "@/lib/types";
 
@@ -50,6 +50,7 @@ export function NewRequestModal({
   const [advanceDeadline, setAdvanceDeadline] = useState("");
   const [currency, setCurrency] = useState("BRL");
   const [customCurrency, setCustomCurrency] = useState("");
+  const [company, setCompany] = useState<string>(COMPANIES[0]);
   const [splitDepts, setSplitDepts] = useState(false);
   const [allocations, setAllocations] = useState<AllocationDraft[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -138,6 +139,7 @@ export function NewRequestModal({
       justification: justification.trim() || null,
       notes: notes.trim() || null,
       currency: activeCurrency || "BRL",
+      company: company || COMPANIES[0],
     };
     if (splitDepts) {
       const last = allocations.length - 1;
@@ -298,6 +300,13 @@ export function NewRequestModal({
                   autoFocus
                 />
               )}
+            </Field>
+            <Field label="Empresa responsável">
+              <select value={company} onChange={(e) => setCompany(e.target.value)} className="input">
+                {COMPANIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
             </Field>
             <Field label="Justificativa" full>
               <textarea

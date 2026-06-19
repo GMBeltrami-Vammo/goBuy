@@ -46,9 +46,13 @@ export const formatAmount = (n: number, currency = "BRL"): string =>
 // ─── Document-type gating by status ───────────────────────────────────────────
 // Desde a submissão: cotações, contratos e boleto.
 // Aprovada em diante: também nota fiscal, fatura, recibo, nota de débito, outros.
-const PRE_APPROVAL_DOCS: DocumentType[] = ["quotation", "contract", "boleto"];
+export const COMPANIES = ["Vammo Brasil", "Vammo Colômbia", "Vammo México", "Vammo USA"] as const;
+export type CompanyName = (typeof COMPANIES)[number];
+
+const PRE_APPROVAL_DOCS: DocumentType[] = ["quotation", "contract"];
 const POST_APPROVAL_DOCS: DocumentType[] = [
   "nota_fiscal",
+  "boleto",
   "invoice",
   "receipt",
   "debit_note",

@@ -42,6 +42,7 @@ export function HeadDashboard({
   const [detailCenter, setDetailCenter] = useState<CostCenter | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [toast, setToast] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"pizza" | "barra">("pizza");
   const autoOpened = useRef(false);
 
   const monthStart = useMemo(() => {
@@ -62,7 +63,7 @@ export function HeadDashboard({
         .in("cost_center_id", centerIds),
       supabase
         .from("purchase_requests")
-        .select("*, cost_centers(code, name, department)")
+        .select("*, cost_centers(code, name, department), request_allocations(cost_center_id, percentage, approved_at, approved_by_email)")
         .in("cost_center_id", centerIds)
         .order("created_at", { ascending: false })
         .limit(500),
@@ -120,8 +121,26 @@ export function HeadDashboard({
     return { budget, committed, available: Math.max(0, budget - committed) };
   }, [centers, budgetByCenter, committedByCenter]);
 
+  const pendingByCenter = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const r of requests ?? []) {
+      if (r.status !== "pending") continue;
+      for (const a of r.request_allocations ?? []) {
+        if (centerIds.includes(a.cost_center_id) && !a.approved_at) {
+          map.set(a.cost_center_id, (map.get(a.cost_center_id) ?? 0) + 1);
+        }
+      }
+    }
+    return map;
+  }, [requests, centerIds]);
+
   const pending = useMemo(() => {
-    const list = (requests ?? []).filter((r) => r.status === "pending");
+    const list = (requests ?? []).filter((r) => {
+      if (r.status !== "pending") return false;
+      const allocs = r.request_allocations ?? [];
+      if (allocs.length === 0) return true;
+      return allocs.some((a) => centerIds.includes(a.cost_center_id) && !a.approved_at);
+    });
     const sorted = [...list];
     if (sortKey === "value") sorted.sort((a, b) => Number(b.total_amount) - Number(a.total_amount));
     if (sortKey === "date") sorted.sort((a, b) => a.created_at.localeCompare(b.created_at));
@@ -228,37 +247,130 @@ export function HeadDashboard({
         </p>
       )}
 
-      {/* Per-center donuts */}
-      <div className="reveal reveal-3 mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {centers.map((cc) => {
-          const budget = budgetByCenter.get(cc.id) ?? 0;
-          const consumed = committedByCenter.get(cc.id) ?? 0;
-          return (
-            <button
-              key={cc.id}
-              onClick={() => setDetailCenter(cc)}
-              className="flex items-center gap-4 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-left shadow-[var(--shadow)] transition hover:border-[var(--accent)]"
-              title="Ver detalhes do budget"
-            >
-              <BudgetDonut consumed={consumed} budget={budget} />
-              <div className="min-w-0">
-                <p className="v-tabular text-[10px] uppercase tracking-widest text-[var(--faint)]">
-                  {cc.code}
-                </p>
-                <p className="mt-0.5 truncate text-sm font-semibold" title={cc.name}>
-                  {cc.name}
-                </p>
-                <p className="mt-2 v-tabular text-xs text-[var(--muted)]">
-                  <span className="text-[var(--ink)]">{formatBRL(consumed)}</span>
-                  {budget > 0 && <> / {formatBRL(budget)}</>}
-                </p>
-                <p className="mt-1 text-[10px] font-semibold text-[var(--accent)]">
-                  Detalhes →
-                </p>
-              </div>
-            </button>
-          );
-        })}
+      {/* Per-center charts */}
+      <div className="reveal reveal-3 mt-6">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <p className="v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">
+            Por centro de custo — {monthLabel}
+          </p>
+          <div className="flex items-center gap-0.5 rounded-lg border border-[var(--line)] p-0.5">
+            {(["pizza", "barra"] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={`rounded-md px-3 py-1 text-xs font-medium transition ${
+                  viewMode === mode
+                    ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                    : "text-[var(--muted)] hover:text-[var(--ink)]"
+                }`}
+              >
+                {mode === "pizza" ? "Pizzas" : "Barras"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {viewMode === "pizza" ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {centers.map((cc) => {
+              const budget = budgetByCenter.get(cc.id) ?? 0;
+              const consumed = committedByCenter.get(cc.id) ?? 0;
+              const pendingCount = pendingByCenter.get(cc.id) ?? 0;
+              return (
+                <button
+                  key={cc.id}
+                  onClick={() => setDetailCenter(cc)}
+                  className="flex items-center gap-4 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-left shadow-[var(--shadow)] transition hover:border-[var(--accent)]"
+                  title="Ver detalhes do budget"
+                >
+                  <BudgetDonut consumed={consumed} budget={budget} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-1">
+                      <p className="v-tabular text-[10px] uppercase tracking-widest text-[var(--faint)]">
+                        {cc.code}
+                      </p>
+                      {pendingCount > 0 && (
+                        <span className="shrink-0 rounded-full bg-[var(--pending-soft)] px-2 py-0.5 v-tabular text-[10px] font-bold text-[var(--pending)]">
+                          {pendingCount} pend.
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 truncate text-sm font-semibold" title={cc.name}>
+                      {cc.name}
+                    </p>
+                    <p className="mt-2 v-tabular text-xs text-[var(--muted)]">
+                      <span className="text-[var(--ink)]">{formatBRL(consumed)}</span>
+                      {budget > 0 && <> / {formatBRL(budget)}</>}
+                    </p>
+                    <p className="mt-1 text-[10px] font-semibold text-[var(--accent)]">
+                      Detalhes →
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {centers.map((cc) => {
+              const budget = budgetByCenter.get(cc.id) ?? 0;
+              const consumed = committedByCenter.get(cc.id) ?? 0;
+              const pendingCount = pendingByCenter.get(cc.id) ?? 0;
+              const pct = budget > 0 ? Math.round((consumed / budget) * 100) : 0;
+              const overBudget = budget > 0 && consumed > budget;
+              return (
+                <button
+                  key={cc.id}
+                  onClick={() => setDetailCenter(cc)}
+                  className="flex w-full items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3 text-left shadow-[var(--shadow)] transition hover:border-[var(--accent)]"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="v-tabular text-[10px] uppercase tracking-widest text-[var(--faint)]">
+                          {cc.code}
+                        </p>
+                        <p className="truncate text-sm font-semibold" title={cc.name}>
+                          {cc.name}
+                        </p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p
+                          className="v-tabular text-sm font-bold"
+                          style={{ color: overBudget ? "var(--rejected)" : "var(--ink)" }}
+                        >
+                          {budget > 0 ? `${pct}%` : formatBRL(consumed)}
+                        </p>
+                        <p className="v-tabular text-[11px] text-[var(--muted)]">
+                          {formatBRL(consumed)}
+                          {budget > 0 && <> / {formatBRL(budget)}</>}
+                        </p>
+                      </div>
+                    </div>
+                    {budget > 0 && (
+                      <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{
+                            width: `${Math.min(100, pct)}%`,
+                            backgroundColor: overBudget
+                              ? "var(--rejected)"
+                              : "var(--accent)",
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  {pendingCount > 0 && (
+                    <span className="shrink-0 rounded-full bg-[var(--pending-soft)] px-2 py-0.5 v-tabular text-[10px] font-bold text-[var(--pending)]">
+                      {pendingCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Pending queue */}
@@ -389,7 +501,12 @@ export function HeadDashboard({
           request={openRequest}
           viewerEmail={email}
           supabaseToken={supabaseToken}
-          canDecide={openRequest.status === "pending"}
+          canDecide={
+            openRequest.status === "pending" &&
+            (openRequest.request_allocations ?? []).some(
+              (a) => centerIds.includes(a.cost_center_id) && !a.approved_at,
+            )
+          }
           onClose={() => setOpenRequest(null)}
           onChanged={(msg) => {
             setOpenRequest(null);

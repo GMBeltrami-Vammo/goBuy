@@ -81,7 +81,9 @@ export interface PurchaseRequest {
   bank_account: string | null;
   payment_type: string | null;
   finance_submitted_at: string | null;
-  cost_centers?: Pick<CostCenter, "code" | "name" | "department">;
+  cost_centers?: Pick<CostCenter, "code" | "name" | "department"> & {
+    cost_center_heads?: { head_name: string | null; head_email: string }[];
+  };
   request_allocations?: RequestAllocation[];
 }
 
@@ -90,6 +92,8 @@ export interface RequestAllocation {
   request_id?: string;
   cost_center_id: number;
   percentage: number;
+  approved_at?: string | null;
+  approved_by_email?: string | null;
   cost_centers?: Pick<CostCenter, "code" | "name" | "department">;
 }
 
