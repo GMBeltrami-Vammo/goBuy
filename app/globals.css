@@ -115,7 +115,7 @@ body {
 .dark .aurora {
   opacity: 0.9;
 }
-html.fx-on .aurora {
+html.fx-aurora .aurora {
   display: block;
 }
 .aurora span {
@@ -162,6 +162,90 @@ html.fx-on .aurora {
 }
 @media (prefers-reduced-motion: reduce) {
   .aurora span { animation: none; }
+}
+
+/* ── Ambient circuit — enterprise network pattern + flow lines + glow ───
+   Second ambient option (toggle cycles circuit → aurora → off, default
+   circuit). Layered and intentionally near-invisible: opacity is kept
+   extreme-low so it reads only after several seconds, never on load.
+     Layer 2 — subtle network/circuit pattern (.circuit-grid)
+     Layer 3 — thin animated flow lines (.circuit-flow)
+     Layer 4 — blue glow behind the central content (.circuit-glow)
+   (Layer 1 — the dark background — is the theme itself.) */
+.circuit {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  display: none;
+}
+html.fx-circuit .circuit {
+  display: block;
+}
+
+/* Layer 2 — node grid + faint orthogonal traces. */
+.circuit-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(rgba(46, 194, 255, 0.6) 1px, transparent 1.6px),
+    linear-gradient(rgba(46, 194, 255, 0.3) 0.5px, transparent 0.5px),
+    linear-gradient(90deg, rgba(46, 194, 255, 0.3) 0.5px, transparent 0.5px);
+  background-size: 44px 44px, 44px 44px, 44px 44px;
+  opacity: 0.05;
+}
+.dark .circuit-grid {
+  opacity: 0.07;
+}
+
+/* Layer 4 — soft blue glow behind the centred content column. */
+.circuit-glow {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: 62vw;
+  height: 72vh;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(ellipse at center, rgba(46, 194, 255, 0.12), transparent 70%);
+  filter: blur(50px);
+}
+
+/* Layer 3 — thin highlight segments travelling along traces. */
+.circuit-flow span {
+  position: absolute;
+  background-repeat: no-repeat;
+  opacity: 0.12;
+  will-change: background-position;
+}
+.circuit-flow span:nth-child(-n + 3) {
+  height: 1px;
+  width: 100%;
+  background-image: linear-gradient(90deg, transparent, rgba(46, 194, 255, 0.7), transparent);
+  background-size: 240px 100%;
+}
+.circuit-flow span:nth-child(1) { top: 22%; animation: flow-x 9s linear infinite; }
+.circuit-flow span:nth-child(2) { top: 58%; animation: flow-x 13s linear infinite 2s; }
+.circuit-flow span:nth-child(3) { top: 81%; animation: flow-x 11s linear infinite 5s; }
+.circuit-flow span:nth-child(4),
+.circuit-flow span:nth-child(5) {
+  width: 1px;
+  height: 100%;
+  background-image: linear-gradient(180deg, transparent, rgba(46, 194, 255, 0.6), transparent);
+  background-size: 100% 240px;
+}
+.circuit-flow span:nth-child(4) { left: 30%; animation: flow-y 14s linear infinite 1s; }
+.circuit-flow span:nth-child(5) { left: 72%; animation: flow-y 16s linear infinite 6s; }
+@keyframes flow-x {
+  from { background-position: -240px 0; }
+  to { background-position: calc(100% + 240px) 0; }
+}
+@keyframes flow-y {
+  from { background-position: 0 -240px; }
+  to { background-position: 0 calc(100% + 240px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .circuit-flow span { animation: none; opacity: 0.04; }
 }
 
 /* Tabular figures for IDs, money and any column of numbers (DS §08). */

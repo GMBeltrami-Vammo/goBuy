@@ -15,7 +15,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const isAdmin = ctx.email.toLowerCase() === "gabriel.beltrami@vammo.com";
 
   return (
-    <div className="mx-auto flex min-h-[calc(100vh-3px)] w-full max-w-5xl flex-col px-5 sm:px-8">
+    <div className="mx-auto flex min-h-[calc(100vh-3px)] w-full max-w-[110rem] flex-col px-5 sm:px-8 lg:w-3/4">
       <header className="flex items-center justify-between gap-4 pb-2 pt-6">
         <div className="flex items-baseline gap-3">
           <span className="text-xl font-bold tracking-tight">

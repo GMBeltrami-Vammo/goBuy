@@ -19,8 +19,9 @@ export const metadata: Metadata = {
 /** Applies the saved theme before paint — no flash of wrong theme. */
 const themeBootstrap = `(function(){try{var t=localStorage.getItem("gobuy-theme");var d=t? t==="dark":window.matchMedia("(prefers-color-scheme: dark)").matches;if(d)document.documentElement.classList.add("dark");}catch(e){}})();`;
 
-/** Applies the saved ambient-effect preference before paint (default on). */
-const fxBootstrap = `(function(){try{if(localStorage.getItem("gobuy-fx")!=="off")document.documentElement.classList.add("fx-on");}catch(e){document.documentElement.classList.add("fx-on");}})();`;
+/** Applies the saved ambient-effect mode before paint (circuit | aurora | off,
+ *  default circuit). Migrates the legacy on/off value ("on" → aurora). */
+const fxBootstrap = `(function(){try{var f=localStorage.getItem("gobuy-fx");if(f==="on")f="aurora";if(!f)f="circuit";var c=document.documentElement.classList;if(f==="aurora")c.add("fx-aurora");else if(f!=="off")c.add("fx-circuit");}catch(e){document.documentElement.classList.add("fx-circuit");}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -34,6 +35,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <span />
           <span />
           <span />
+        </div>
+        <div className="circuit" aria-hidden="true">
+          <div className="circuit-grid" />
+          <div className="circuit-glow" />
+          <div className="circuit-flow">
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
         </div>
         <div className="brand-thread" />
         {children}
