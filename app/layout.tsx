@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 
+import { CircuitSides } from "@/components/circuit-sides";
 import "./globals.css";
 
 // Vammo DS product track: Inter for all product UI (Supria Sans is
@@ -39,6 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div className="circuit" aria-hidden="true">
           <div className="circuit-grid" />
           <div className="circuit-glow" />
+          <CircuitSides />
           <div className="circuit-flow">
             <span />
             <span />

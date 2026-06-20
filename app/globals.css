@@ -193,10 +193,31 @@ html.fx-circuit .circuit {
     linear-gradient(rgba(46, 194, 255, 0.3) 0.5px, transparent 0.5px),
     linear-gradient(90deg, rgba(46, 194, 255, 0.3) 0.5px, transparent 0.5px);
   background-size: 44px 44px, 44px 44px, 44px 44px;
-  opacity: 0.05;
+  opacity: 0.06;
 }
 .dark .circuit-grid {
-  opacity: 0.07;
+  opacity: 0.09;
+}
+
+/* Denser circuit detail in the side gutters (left/right), slightly more
+   visible — real traces, pads and vias flanking the content column. */
+.circuit-side {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 15vw;
+  max-width: 240px;
+  opacity: 0.11;
+}
+.dark .circuit-side {
+  opacity: 0.15;
+}
+.circuit-side-left {
+  left: 0;
+}
+.circuit-side-right {
+  right: 0;
+  transform: scaleX(-1);
 }
 
 /* Layer 4 — soft blue glow behind the centred content column. */
@@ -215,7 +236,7 @@ html.fx-circuit .circuit {
 .circuit-flow span {
   position: absolute;
   background-repeat: no-repeat;
-  opacity: 0.12;
+  opacity: 0.15;
   will-change: background-position;
 }
 .circuit-flow span:nth-child(-n + 3) {
@@ -258,22 +279,18 @@ html.fx-circuit .circuit {
   z-index: -1;
   pointer-events: none;
   display: none;
-  background: radial-gradient(
-    circle 82vmin at 50% 46%,
-    rgba(46, 194, 255, 0.1) 0%,
-    rgba(46, 194, 255, 0.16) 32%,
-    rgba(46, 194, 255, 0.05) 55%,
-    transparent 72%
-  );
+  /* Two glow foci (left/right of the content), like the foci of an ellipse.
+     Each core sits behind the table edge, so the glow is concentrated at the
+     side borders and fades both ways; the gradients reach ~transparent before
+     the centre, keeping the middle clean. */
+  background:
+    radial-gradient(circle 32vw at 14% 50%, rgba(46, 194, 255, 0.17) 0%, rgba(46, 194, 255, 0.07) 44%, transparent 100%),
+    radial-gradient(circle 32vw at 86% 50%, rgba(46, 194, 255, 0.17) 0%, rgba(46, 194, 255, 0.07) 44%, transparent 100%);
 }
 .dark .sphere {
-  background: radial-gradient(
-    circle 82vmin at 50% 46%,
-    rgba(46, 194, 255, 0.12) 0%,
-    rgba(46, 194, 255, 0.2) 32%,
-    rgba(46, 194, 255, 0.07) 55%,
-    transparent 72%
-  );
+  background:
+    radial-gradient(circle 32vw at 14% 50%, rgba(46, 194, 255, 0.22) 0%, rgba(46, 194, 255, 0.1) 44%, transparent 100%),
+    radial-gradient(circle 32vw at 86% 50%, rgba(46, 194, 255, 0.22) 0%, rgba(46, 194, 255, 0.1) 44%, transparent 100%);
 }
 html.fx-sphere .sphere {
   display: block;
