@@ -2,35 +2,35 @@ import type { CSSProperties } from "react";
 
 // Connected circuit board for the "circuit" ambient effect. Hand-authored,
 // non-repeating traces span both side borders of a 1000×600 viewBox stretched
-// edge-to-edge (preserveAspectRatio="none"). Routing wanders vertically (V/L
-// jogs) and a few short cross-links interconnect adjacent traces, so it reads
-// as a circuit rather than parallel horizontals. A few traces carry one short,
+// edge-to-edge (preserveAspectRatio="none"). Routing changes height via 45°
+// diagonals (no right-angle jogs), with a few diagonal cross-links between
+// adjacent traces and sparse junction nodes. A few traces carry one short,
 // bright, widened SECTION of wire that streaks along like current — staggered
 // so only ~1–2 are visible at any moment. Decorative (aria-hidden); shown only
 // when the circuit effect is active (.circuit is gated on html.fx-circuit).
 
 type Pulse = { d: string; dur: number; delay: number };
 
-// Main traces — each touches x=0 (left border) and x=1000 (right border), but
-// jogs up/down so the path is not a straight horizontal.
+// Main traces — each touches x=0 (left border) and x=1000 (right border) and
+// shifts height only via 45° diagonals (L with equal dx/dy), so bends are 135°,
+// never 90°.
 const MAIN: string[] = [
-  "M0 70 H140 V120 H280 L330 80 H470 V140 H640 L690 96 H860 V150 H1000", // M1
-  "M0 210 H110 L160 170 H260 V250 H420 L470 210 H600 V270 H760 L810 220 H1000", // M2
-  "M0 320 H180 V270 H320 L370 320 H520 V360 H680 L730 320 H1000", // M3
-  "M0 400 H120 L170 440 H300 V370 H460 L510 420 H660 V460 H820 L870 410 H1000", // M4
-  "M0 500 H160 V460 H320 L370 500 H540 V540 H700 L750 500 H1000", // M5
-  "M0 560 H240 L290 520 H460 V568 H640 L690 528 H1000", // M6
+  "M0 70 H120 L170 120 H280 L320 80 H470 L520 130 H660 L700 90 H860 L910 140 H1000", // M1
+  "M0 210 H110 L160 160 H280 L330 210 H470 L510 170 H640 L690 220 H800 L850 170 H1000", // M2
+  "M0 320 H160 L210 270 H330 L380 320 H520 L560 280 H690 L740 330 H1000", // M3
+  "M0 400 H120 L170 450 H300 L340 410 H470 L520 460 H660 L710 410 H840 L890 460 H1000", // M4
+  "M0 500 H150 L200 450 H330 L380 500 H540 L590 550 H700 L750 500 H1000", // M5
+  "M0 560 H230 L280 510 H460 L510 560 H650 L700 510 H1000", // M6
 ];
 
-// Short vertical links between adjacent traces — a handful of interconnections,
-// not a lattice.
+// Diagonal (45°) links between adjacent traces — a handful of interconnections.
 const LINKS: string[] = [
-  "M210 120 V170",
-  "M395 250 V320",
-  "M430 320 V370",
-  "M525 420 V500",
-  "M415 500 V520",
-  "M920 150 V220",
+  "M210 120 L250 160",
+  "M560 170 L670 280",
+  "M380 320 L470 410",
+  "M590 460 L680 550",
+  "M290 450 L350 510",
+  "M910 140 L940 170",
 ];
 
 // Traces that carry a travelling streak. Long, varied, staggered durations keep
@@ -44,8 +44,8 @@ const PULSES: Pulse[] = [
 
 // Sparse junction dots.
 const NODES: [number, number][] = [
-  [210, 120], [470, 80], [260, 170], [395, 320], [430, 370],
-  [730, 320], [660, 420], [525, 500], [415, 520], [920, 220],
+  [170, 120], [320, 80], [510, 170], [670, 280], [380, 320],
+  [470, 410], [590, 460], [350, 510], [750, 500], [940, 170],
 ];
 
 export function CircuitNet() {

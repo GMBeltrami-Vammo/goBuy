@@ -251,14 +251,14 @@ html.fx-circuit .circuit {
   animation-iteration-count: infinite;
 }
 .net-pulse-glow {
-  stroke: #5fd2ff;
+  stroke: #18a8f5;
   stroke-width: 5;
-  opacity: 0.22;
+  opacity: 0.24;
 }
 .net-pulse-core {
-  stroke: #e6f6ff;
+  stroke: #6cc6ff;
   stroke-width: 2.4;
-  opacity: 0.9;
+  opacity: 0.95;
 }
 .dark .net-pulse-glow {
   opacity: 0.3;
