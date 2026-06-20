@@ -2,7 +2,7 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ── goBuy — Vammo Design System, PRODUCT track ────────────────────
+/* ── Lumen — Vammo Design System, PRODUCT track ────────────────────
    Source: Vammo DS README + BRANDING_UPDATE_2026.
    - Primary trio: Black / White / Neon Blue #2EC2FF (default accent).
    - One neon per view — and it is Blue. Yellow/Pink/Orange only when

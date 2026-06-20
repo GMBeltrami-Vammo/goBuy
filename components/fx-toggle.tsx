@@ -8,11 +8,11 @@ type FxMode = "circuit" | "circuit-static" | "aurora" | "sphere" | "off";
 const ORDER: FxMode[] = ["circuit", "circuit-static", "aurora", "sphere", "off"];
 
 const LABEL: Record<FxMode, string> = {
-  circuit: "rede",
-  "circuit-static": "rede estática",
-  aurora: "aurora",
-  sphere: "esfera",
-  off: "desligado",
+  circuit: "Pulso",
+  "circuit-static": "Circuito",
+  aurora: "Aurora",
+  sphere: "Halo",
+  off: "Desligado",
 };
 
 function readMode(): FxMode {

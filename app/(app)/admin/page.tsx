@@ -5,7 +5,7 @@ import { getSessionContext } from "@/lib/auth";
 
 const SUPER_ADMIN = "gabriel.beltrami@vammo.com";
 
-export const metadata = { title: "Admin — goBuy" };
+export const metadata = { title: "Admin — Lumen" };
 
 export default async function AdminPage() {
   const ctx = await getSessionContext();
@@ -16,7 +16,7 @@ export default async function AdminPage() {
       <div className="mb-8">
         <h1 className="text-2xl font-bold tracking-tight text-[var(--ink)]">Administração</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Gerencie acessos, roles e centros de custo do goBuy.
+          Gerencie acessos, roles e centros de custo do Lumen.
         </p>
       </div>
       <AdminDashboard />
