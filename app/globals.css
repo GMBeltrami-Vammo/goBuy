@@ -249,6 +249,10 @@ html.fx-circuit .circuit {
   animation-name: net-streak;
   animation-timing-function: linear;
   animation-iteration-count: infinite;
+  /* backwards fill applies the `from` (streak off the left edge) during the
+     start delay, so streaks are invisible while waiting and enter progressively
+     on the first cycle too — not parked at x=0. */
+  animation-fill-mode: backwards;
 }
 .net-pulse-glow {
   stroke: #18a8f5;
@@ -267,8 +271,10 @@ html.fx-circuit .circuit {
   opacity: 0.95;
 }
 @keyframes net-streak {
-  from { stroke-dashoffset: 0; }
-  to { stroke-dashoffset: -345; }
+  /* Start with the streak just off the left edge (in the lead-in gap) so it
+     slides in, not popped onto x=0; range stays one full period (345). */
+  from { stroke-dashoffset: 20; }
+  to { stroke-dashoffset: -325; }
 }
 @media (prefers-reduced-motion: reduce) {
   .net-pulses { display: none; }
