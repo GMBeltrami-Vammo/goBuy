@@ -2,29 +2,32 @@
 
 import { useEffect, useState } from "react";
 
-type FxMode = "circuit" | "aurora" | "off";
+type FxMode = "circuit" | "aurora" | "sphere" | "off";
 
-// Cycle order: circuit (enterprise network) → aurora (neon glow) → off.
-const ORDER: FxMode[] = ["circuit", "aurora", "off"];
+// Cycle order: circuit (network) → aurora (neon glow) → sphere (blue orb) → off.
+const ORDER: FxMode[] = ["circuit", "aurora", "sphere", "off"];
 
 const LABEL: Record<FxMode, string> = {
   circuit: "rede",
   aurora: "aurora",
+  sphere: "esfera",
   off: "desligado",
 };
 
 function readMode(): FxMode {
   const c = document.documentElement.classList;
   if (c.contains("fx-aurora")) return "aurora";
+  if (c.contains("fx-sphere")) return "sphere";
   if (c.contains("fx-circuit")) return "circuit";
   return "off";
 }
 
 function applyMode(mode: FxMode) {
   const c = document.documentElement.classList;
-  c.remove("fx-aurora", "fx-circuit");
+  c.remove("fx-aurora", "fx-circuit", "fx-sphere");
   if (mode === "aurora") c.add("fx-aurora");
   else if (mode === "circuit") c.add("fx-circuit");
+  else if (mode === "sphere") c.add("fx-sphere");
   try {
     localStorage.setItem("gobuy-fx", mode);
   } catch {}
@@ -72,6 +75,12 @@ export function FxToggle() {
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1" />
           <circle cx="12" cy="12" r="3.2" />
+        </svg>
+      ) : mode === "sphere" ? (
+        // Orb — concentric circles
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="9" />
+          <circle cx="12" cy="12" r="4" fill="currentColor" stroke="none" />
         </svg>
       ) : (
         // Off

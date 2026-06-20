@@ -21,7 +21,7 @@ const themeBootstrap = `(function(){try{var t=localStorage.getItem("gobuy-theme"
 
 /** Applies the saved ambient-effect mode before paint (circuit | aurora | off,
  *  default circuit). Migrates the legacy on/off value ("on" → aurora). */
-const fxBootstrap = `(function(){try{var f=localStorage.getItem("gobuy-fx");if(f==="on")f="aurora";if(!f)f="circuit";var c=document.documentElement.classList;if(f==="aurora")c.add("fx-aurora");else if(f!=="off")c.add("fx-circuit");}catch(e){document.documentElement.classList.add("fx-circuit");}})();`;
+const fxBootstrap = `(function(){try{var f=localStorage.getItem("gobuy-fx");if(f==="on")f="aurora";if(!f)f="circuit";var c=document.documentElement.classList;if(f==="aurora")c.add("fx-aurora");else if(f==="sphere")c.add("fx-sphere");else if(f!=="off")c.add("fx-circuit");}catch(e){document.documentElement.classList.add("fx-circuit");}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -47,6 +47,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <span />
           </div>
         </div>
+        <div className="sphere" aria-hidden="true" />
         <div className="brand-thread" />
         {children}
       </body>

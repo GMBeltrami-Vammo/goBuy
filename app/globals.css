@@ -248,6 +248,37 @@ html.fx-circuit .circuit {
   .circuit-flow span { animation: none; opacity: 0.04; }
 }
 
+/* ── Ambient sphere — a soft blue orb centred on the viewport ───────────
+   Third ambient option. The orb's bright core sits behind the (opaque)
+   content column, so only its fading exterior bleeds into the gutters around
+   the table — a halo of blue light surrounding the content. Static, cheap. */
+.sphere {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  display: none;
+  background: radial-gradient(
+    circle 82vmin at 50% 46%,
+    rgba(46, 194, 255, 0.1) 0%,
+    rgba(46, 194, 255, 0.16) 32%,
+    rgba(46, 194, 255, 0.05) 55%,
+    transparent 72%
+  );
+}
+.dark .sphere {
+  background: radial-gradient(
+    circle 82vmin at 50% 46%,
+    rgba(46, 194, 255, 0.12) 0%,
+    rgba(46, 194, 255, 0.2) 32%,
+    rgba(46, 194, 255, 0.07) 55%,
+    transparent 72%
+  );
+}
+html.fx-sphere .sphere {
+  display: block;
+}
+
 /* Tabular figures for IDs, money and any column of numbers (DS §08). */
 .v-tabular {
   font-variant-numeric: tabular-nums;
