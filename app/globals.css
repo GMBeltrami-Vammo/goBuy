@@ -235,15 +235,40 @@ html.fx-circuit .circuit {
   opacity: 0.2;
 }
 
-/* Travelling light — a soft "ball of light" rides each active trace via SVG
-   animateMotion (a small moving element → compositor-friendly, far cheaper than
-   re-rasterising a long dashed stroke each frame). The ball's glow is the
-   radial-gradient fill defined in the SVG (#netBall). */
-.net-pulses circle {
-  opacity: 0.7;
+/* Travelling light — one short, bright, widened SECTION of the wire streaks
+   along a trace (a thin elongated glow that follows the wire, glow + brighter
+   core). pathLength is normalised to 100, so a 14% dash with a long gap gives a
+   single fast streak followed by a multi-second pause; staggered per-trace
+   timing (inline duration/delay) keeps only ~1–2 visible at once. */
+.net-pulse-glow,
+.net-pulse-core {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+  stroke-dasharray: 14 331;
+  animation-name: net-streak;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
 }
-.dark .net-pulses circle {
-  opacity: 0.85;
+.net-pulse-glow {
+  stroke: #5fd2ff;
+  stroke-width: 5;
+  opacity: 0.22;
+}
+.net-pulse-core {
+  stroke: #e6f6ff;
+  stroke-width: 2.4;
+  opacity: 0.9;
+}
+.dark .net-pulse-glow {
+  opacity: 0.3;
+}
+.dark .net-pulse-core {
+  opacity: 0.95;
+}
+@keyframes net-streak {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -345; }
 }
 @media (prefers-reduced-motion: reduce) {
   .net-pulses { display: none; }
