@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from "react";
 
-type FxMode = "circuit" | "aurora" | "sphere" | "off";
+type FxMode = "circuit" | "circuit-static" | "aurora" | "sphere" | "off";
 
-// Cycle order: circuit (network) → aurora (neon glow) → sphere (blue orb) → off.
-const ORDER: FxMode[] = ["circuit", "aurora", "sphere", "off"];
+// Cycle: circuit (animated) → circuit-static (no streaks) → aurora → sphere → off.
+const ORDER: FxMode[] = ["circuit", "circuit-static", "aurora", "sphere", "off"];
 
 const LABEL: Record<FxMode, string> = {
   circuit: "rede",
+  "circuit-static": "rede estática",
   aurora: "aurora",
   sphere: "esfera",
   off: "desligado",
@@ -18,23 +19,26 @@ function readMode(): FxMode {
   const c = document.documentElement.classList;
   if (c.contains("fx-aurora")) return "aurora";
   if (c.contains("fx-sphere")) return "sphere";
+  if (c.contains("fx-circuit-static")) return "circuit-static";
   if (c.contains("fx-circuit")) return "circuit";
   return "off";
 }
 
 function applyMode(mode: FxMode) {
   const c = document.documentElement.classList;
-  c.remove("fx-aurora", "fx-circuit", "fx-sphere");
+  c.remove("fx-aurora", "fx-circuit", "fx-sphere", "fx-circuit-static");
   if (mode === "aurora") c.add("fx-aurora");
   else if (mode === "circuit") c.add("fx-circuit");
+  else if (mode === "circuit-static") c.add("fx-circuit-static");
   else if (mode === "sphere") c.add("fx-sphere");
   try {
     localStorage.setItem("gobuy-fx", mode);
   } catch {}
 }
 
-/** Cycles the ambient background through circuit → aurora → off, persisted to
- *  localStorage like the theme. The bootstrap script sets it pre-paint. */
+/** Cycles the ambient background through circuit → circuit-static → aurora →
+ *  sphere → off, persisted to localStorage. The bootstrap script sets it
+ *  pre-paint. */
 export function FxToggle() {
   const [mode, setMode] = useState<FxMode | null>(null);
 
@@ -63,12 +67,21 @@ export function FxToggle() {
       {mode === null ? (
         <span className="block h-4 w-4" />
       ) : mode === "circuit" ? (
-        // Network nodes
+        // Network nodes (animated)
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="5" cy="6" r="2" />
           <circle cx="19" cy="6" r="2" />
           <circle cx="12" cy="18" r="2" />
           <path d="M6.8 7.2 10.2 16.2M17.2 7.2 13.8 16.2M7 6h10" />
+        </svg>
+      ) : mode === "circuit-static" ? (
+        // Circuit mesh (static — no streaks)
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="6" cy="6" r="1.7" />
+          <circle cx="18" cy="6" r="1.7" />
+          <circle cx="6" cy="18" r="1.7" />
+          <circle cx="18" cy="18" r="1.7" />
+          <path d="M6 7.7v8.6M18 7.7v8.6M7.7 6h8.6M7.7 18h8.6" />
         </svg>
       ) : mode === "aurora" ? (
         // Glow / sparkle

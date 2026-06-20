@@ -192,8 +192,13 @@ html.fx-aurora .aurora {
   pointer-events: none;
   display: none;
 }
-html.fx-circuit .circuit {
+html.fx-circuit .circuit,
+html.fx-circuit-static .circuit {
   display: block;
+}
+/* Static variant — same board, without the travelling streaks. */
+html.fx-circuit-static .net-pulses {
+  display: none;
 }
 
 /* Faint glow anchoring the central content (the "chip"). */
