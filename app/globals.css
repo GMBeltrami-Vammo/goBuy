@@ -130,7 +130,9 @@ html.fx-aurora .aurora {
   left: -12vw;
   top: -8vw;
   background: radial-gradient(circle, rgba(46, 194, 255, 0.3), transparent 68%);
-  animation: aurora-a 24s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+  animation:
+    aurora-a 20s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate,
+    aurora-pulse 9s ease-in-out infinite alternate;
 }
 .aurora span:nth-child(2) {
   width: 34vw;
@@ -138,7 +140,9 @@ html.fx-aurora .aurora {
   right: -10vw;
   top: 28%;
   background: radial-gradient(circle, rgba(46, 194, 255, 0.22), transparent 68%);
-  animation: aurora-b 30s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+  animation:
+    aurora-b 26s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate,
+    aurora-pulse 12s ease-in-out 2s infinite alternate;
 }
 .aurora span:nth-child(3) {
   width: 30vw;
@@ -146,32 +150,40 @@ html.fx-aurora .aurora {
   left: 22%;
   bottom: -14vw;
   background: radial-gradient(circle, rgba(46, 194, 255, 0.16), transparent 68%);
-  animation: aurora-c 34s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+  animation:
+    aurora-c 30s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate,
+    aurora-pulse 7.5s ease-in-out 4s infinite alternate;
 }
+/* Drift + a gentle scale "breathe" so the movement is visible even though the
+   blobs sit mostly in the off-screen gutters. (Scale lives here, not in the
+   pulse, so only one animation drives transform.) */
 @keyframes aurora-a {
-  from { transform: translate3d(0, 0, 0); }
-  to { transform: translate3d(6vw, 4vw, 0); }
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(9vw, 6vw, 0) scale(1.14); }
 }
 @keyframes aurora-b {
-  from { transform: translate3d(0, 0, 0); }
-  to { transform: translate3d(-5vw, 3vw, 0); }
+  from { transform: translate3d(0, 0, 0) scale(1.08); }
+  to { transform: translate3d(-8vw, 5vw, 0) scale(0.94); }
 }
 @keyframes aurora-c {
-  from { transform: translate3d(0, 0, 0); }
-  to { transform: translate3d(3vw, -5vw, 0); }
+  from { transform: translate3d(0, 0, 0) scale(0.96); }
+  to { transform: translate3d(5vw, -8vw, 0) scale(1.12); }
+}
+/* Tone pulse — fade each blob between full and a clearly weaker tone. */
+@keyframes aurora-pulse {
+  from { opacity: 1; }
+  to { opacity: 0.25; }
 }
 @media (prefers-reduced-motion: reduce) {
   .aurora span { animation: none; }
 }
 
-/* ── Ambient circuit — enterprise network pattern + flow lines + glow ───
-   Second ambient option (toggle cycles circuit → aurora → off, default
-   circuit). Layered and intentionally near-invisible: opacity is kept
-   extreme-low so it reads only after several seconds, never on load.
-     Layer 2 — subtle network/circuit pattern (.circuit-grid)
-     Layer 3 — thin animated flow lines (.circuit-flow)
-     Layer 4 — blue glow behind the central content (.circuit-glow)
-   (Layer 1 — the dark background — is the theme itself.) */
+/* ── Ambient circuit — a connected board with travelling light ─────────
+   Second ambient option (toggle cycles circuit → aurora → sphere → off).
+   Hand-authored, non-repeating traces span both side borders; a few carry a
+   soft "ball of light" that slides along them like current through a board,
+   with the centred content acting as the chip. Deliberately very subtle —
+   meant to be noticed only after several seconds. */
 .circuit {
   position: fixed;
   inset: 0;
@@ -184,89 +196,57 @@ html.fx-circuit .circuit {
   display: block;
 }
 
-/* Layer 2 — node grid + faint orthogonal traces. */
-.circuit-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    radial-gradient(rgba(46, 194, 255, 0.6) 1px, transparent 1.6px),
-    linear-gradient(rgba(46, 194, 255, 0.3) 0.5px, transparent 0.5px),
-    linear-gradient(90deg, rgba(46, 194, 255, 0.3) 0.5px, transparent 0.5px);
-  background-size: 44px 44px, 44px 44px, 44px 44px;
-  opacity: 0.06;
-}
-.dark .circuit-grid {
-  opacity: 0.09;
-}
-
-/* Denser circuit detail in the side gutters (left/right), slightly more
-   visible — real traces, pads and vias flanking the content column. */
-.circuit-side {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 15vw;
-  max-width: 240px;
-  opacity: 0.11;
-}
-.dark .circuit-side {
-  opacity: 0.15;
-}
-.circuit-side-left {
-  left: 0;
-}
-.circuit-side-right {
-  right: 0;
-  transform: scaleX(-1);
-}
-
-/* Layer 4 — soft blue glow behind the centred content column. */
+/* Faint glow anchoring the central content (the "chip"). */
 .circuit-glow {
   position: absolute;
   left: 50%;
-  top: 42%;
-  width: 62vw;
-  height: 72vh;
+  top: 44%;
+  width: 56vw;
+  height: 64vh;
   transform: translate(-50%, -50%);
-  background: radial-gradient(ellipse at center, rgba(46, 194, 255, 0.12), transparent 70%);
+  background: radial-gradient(ellipse at center, rgba(46, 194, 255, 0.07), transparent 70%);
   filter: blur(50px);
 }
 
-/* Layer 3 — thin highlight segments travelling along traces. */
-.circuit-flow span {
+/* The board — viewBox is stretched edge-to-edge (preserveAspectRatio:none) so
+   traces reach both side borders; strokes stay crisp via non-scaling-stroke. */
+.circuit-net {
   position: absolute;
-  background-repeat: no-repeat;
-  opacity: 0.15;
-  will-change: background-position;
-}
-.circuit-flow span:nth-child(-n + 3) {
-  height: 1px;
+  inset: 0;
   width: 100%;
-  background-image: linear-gradient(90deg, transparent, rgba(46, 194, 255, 0.7), transparent);
-  background-size: 240px 100%;
-}
-.circuit-flow span:nth-child(1) { top: 22%; animation: flow-x 9s linear infinite; }
-.circuit-flow span:nth-child(2) { top: 58%; animation: flow-x 13s linear infinite 2s; }
-.circuit-flow span:nth-child(3) { top: 81%; animation: flow-x 11s linear infinite 5s; }
-.circuit-flow span:nth-child(4),
-.circuit-flow span:nth-child(5) {
-  width: 1px;
   height: 100%;
-  background-image: linear-gradient(180deg, transparent, rgba(46, 194, 255, 0.6), transparent);
-  background-size: 100% 240px;
+  pointer-events: none;
 }
-.circuit-flow span:nth-child(4) { left: 30%; animation: flow-y 14s linear infinite 1s; }
-.circuit-flow span:nth-child(5) { left: 72%; animation: flow-y 16s linear infinite 6s; }
-@keyframes flow-x {
-  from { background-position: -240px 0; }
-  to { background-position: calc(100% + 240px) 0; }
+.net-base path {
+  fill: none;
+  stroke: #2ec2ff;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.1;
 }
-@keyframes flow-y {
-  from { background-position: 0 -240px; }
-  to { background-position: 0 calc(100% + 240px); }
+.dark .net-base path {
+  opacity: 0.14;
+}
+.net-nodes circle {
+  fill: #2ec2ff;
+  opacity: 0.16;
+}
+.dark .net-nodes circle {
+  opacity: 0.2;
+}
+
+/* Travelling light — a soft "ball of light" rides each active trace via SVG
+   animateMotion (a small moving element → compositor-friendly, far cheaper than
+   re-rasterising a long dashed stroke each frame). The ball's glow is the
+   radial-gradient fill defined in the SVG (#netBall). */
+.net-pulses circle {
+  opacity: 0.7;
+}
+.dark .net-pulses circle {
+  opacity: 0.85;
 }
 @media (prefers-reduced-motion: reduce) {
-  .circuit-flow span { animation: none; opacity: 0.04; }
+  .net-pulses { display: none; }
 }
 
 /* ── Ambient sphere — a soft blue orb centred on the viewport ───────────
@@ -284,13 +264,13 @@ html.fx-circuit .circuit {
      side borders and fades both ways; the gradients reach ~transparent before
      the centre, keeping the middle clean. */
   background:
-    radial-gradient(circle 32vw at 14% 50%, rgba(46, 194, 255, 0.17) 0%, rgba(46, 194, 255, 0.07) 44%, transparent 100%),
-    radial-gradient(circle 32vw at 86% 50%, rgba(46, 194, 255, 0.17) 0%, rgba(46, 194, 255, 0.07) 44%, transparent 100%);
+    radial-gradient(circle 32vw at 14% 50%, rgba(46, 194, 255, 0.11) 0%, rgba(46, 194, 255, 0.045) 44%, transparent 100%),
+    radial-gradient(circle 32vw at 86% 50%, rgba(46, 194, 255, 0.11) 0%, rgba(46, 194, 255, 0.045) 44%, transparent 100%);
 }
 .dark .sphere {
   background:
-    radial-gradient(circle 32vw at 14% 50%, rgba(46, 194, 255, 0.22) 0%, rgba(46, 194, 255, 0.1) 44%, transparent 100%),
-    radial-gradient(circle 32vw at 86% 50%, rgba(46, 194, 255, 0.22) 0%, rgba(46, 194, 255, 0.1) 44%, transparent 100%);
+    radial-gradient(circle 32vw at 14% 50%, rgba(46, 194, 255, 0.15) 0%, rgba(46, 194, 255, 0.06) 44%, transparent 100%),
+    radial-gradient(circle 32vw at 86% 50%, rgba(46, 194, 255, 0.15) 0%, rgba(46, 194, 255, 0.06) 44%, transparent 100%);
 }
 html.fx-sphere .sphere {
   display: block;
