@@ -2,9 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { Pagination, usePagination } from "@/components/pagination";
 import { RequestDrawer } from "@/components/request-drawer";
 import { StatusBadge, TypeBadge } from "@/components/status-badge";
-import { brtYmd, formatBRL, formatDate, formatDateOnlyBR, STATUS_LABEL, TYPE_LABEL } from "@/lib/format";
+import {
+  brtYmd,
+  formatBRL,
+  formatDate,
+  formatDateOnlyBR,
+  isInvalidDMY,
+  maskDMY,
+  parseDMY,
+  STATUS_LABEL,
+  TYPE_LABEL,
+} from "@/lib/format";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { PurchaseRequest } from "@/lib/types";
 
@@ -27,6 +39,8 @@ export function FinanceDashboard({
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [payTarget, setPayTarget] = useState<PurchaseRequest | null>(null);
+  const [payRef, setPayRef] = useState("");
   const [exporting, setExporting] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -61,19 +75,9 @@ export function FinanceDashboard({
     [requests],
   );
 
-  // Parse dd/mm/yyyy → yyyy-mm-dd. Returns "" for incomplete or invalid input.
-  const parseDDMMYYYY = (s: string): string => {
-    const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-    if (!m) return "";
-    const [, dd, mm, yyyy] = m;
-    const d = new Date(`${yyyy}-${mm}-${dd}`);
-    if (isNaN(d.getTime())) return "";
-    return `${yyyy}-${mm}-${dd}`;
-  };
-
   const filtered = useMemo(() => {
-    const fromYMD = parseDDMMYYYY(dateFrom);
-    const toYMD = parseDDMMYYYY(dateTo);
+    const fromYMD = parseDMY(dateFrom);
+    const toYMD = parseDMY(dateTo);
     let list = requests ?? [];
     if (statusFilter !== "all") list = list.filter((r) => r.status === statusFilter);
     if (typeFilter !== "all") list = list.filter((r) => r.request_type === typeFilter);
@@ -102,6 +106,12 @@ export function FinanceDashboard({
     return list;
   }, [requests, statusFilter, typeFilter, deptFilter, search, dateFrom, dateTo, dateField]);
 
+  const { page, setPage, pageCount, pageItems, total, start, end } = usePagination(
+    filtered,
+    `${statusFilter}|${typeFilter}|${deptFilter}|${search}|${dateFrom}|${dateTo}|${dateField}`,
+  );
+  const dateInvalid = isInvalidDMY(dateFrom) || isInvalidDMY(dateTo);
+
   const toValidate = useMemo(
     () => (requests ?? []).filter((r) => r.status === "awaiting_finance"),
     [requests],
@@ -117,22 +127,21 @@ export function FinanceDashboard({
     window.setTimeout(() => setToast(null), 4500);
   };
 
-  const markPaid = async (r: PurchaseRequest) => {
-    const ref = window.prompt(
-      `Marcar ${r.display_id} (${formatBRL(Number(r.total_amount))}) como paga.\nReferência do pagamento (opcional):`,
-    );
-    if (ref === null) return;
-    setBusyId(r.id);
+  const confirmPay = async () => {
+    if (!payTarget) return;
+    setBusyId(payTarget.id);
     const { error } = await supabaseBrowser(supabaseToken).rpc("mark_purchase_request_paid", {
-      p_request_id: r.id,
-      p_payment_reference: ref.trim() || null,
+      p_request_id: payTarget.id,
+      p_payment_reference: payRef.trim() || null,
     });
     setBusyId(null);
     if (error) {
-      flash(`Erro: ${error.message}`);
+      flash(error.message);
+      setPayTarget(null);
       return;
     }
-    flash(`${r.display_id} marcada como paga.`);
+    flash(`${payTarget.display_id} marcada como paga.`);
+    setPayTarget(null);
     void load();
   };
 
@@ -160,7 +169,14 @@ export function FinanceDashboard({
   const exportCSV = () => {
     const header =
       "ID,Fornecedor,Departamento,Centro de custo,Tipo,Status,Valor,Solicitante,Criada em,Paga em,Referência";
-    const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const esc = (v: unknown) => {
+      const s = String(v ?? "");
+      // Neutralize spreadsheet formula injection: prefix a single quote when a
+      // cell would otherwise be evaluated as a formula (=, +, -, @, or a leading
+      // tab/CR) by Excel/Sheets/Calc on open. Quoting alone does not prevent this.
+      const guarded = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+      return `"${guarded.replace(/"/g, '""')}"`;
+    };
     const rows = filtered.map((r) =>
       [
         r.display_id,
@@ -300,7 +316,7 @@ export function FinanceDashboard({
                   </span>
                 </button>
                 <button
-                  onClick={() => markPaid(r)}
+                  onClick={() => { setPayRef(""); setPayTarget(r); }}
                   disabled={busyId === r.id}
                   className="rounded-lg bg-[var(--paid)] px-3 py-1.5 text-xs font-bold text-[var(--on-status)] transition hover:opacity-90 disabled:opacity-60"
                 >
@@ -388,14 +404,11 @@ export function FinanceDashboard({
               maxLength={10}
               placeholder="dd/mm/yyyy"
               value={dateFrom}
-              onChange={(e) => {
-                const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
-                let v = digits;
-                if (digits.length > 4) v = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
-                else if (digits.length > 2) v = `${digits.slice(0, 2)}/${digits.slice(2)}`;
-                setDateFrom(v);
-              }}
-              className="w-24 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
+              onChange={(e) => setDateFrom(maskDMY(e.target.value))}
+              aria-invalid={isInvalidDMY(dateFrom)}
+              className={`w-24 rounded-md border bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] ${
+                isInvalidDMY(dateFrom) ? "border-[var(--rejected)]" : "border-[var(--line-strong)]"
+              }`}
               aria-label="De (dd/mm/yyyy)"
             />
             <span className="text-[11px] text-[var(--faint)]">—</span>
@@ -405,16 +418,18 @@ export function FinanceDashboard({
               maxLength={10}
               placeholder="dd/mm/yyyy"
               value={dateTo}
-              onChange={(e) => {
-                const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
-                let v = digits;
-                if (digits.length > 4) v = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
-                else if (digits.length > 2) v = `${digits.slice(0, 2)}/${digits.slice(2)}`;
-                setDateTo(v);
-              }}
-              className="w-24 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
+              onChange={(e) => setDateTo(maskDMY(e.target.value))}
+              aria-invalid={isInvalidDMY(dateTo)}
+              className={`w-24 rounded-md border bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] ${
+                isInvalidDMY(dateTo) ? "border-[var(--rejected)]" : "border-[var(--line-strong)]"
+              }`}
               aria-label="Até (dd/mm/yyyy)"
             />
+            {dateInvalid && (
+              <span role="alert" className="text-[11px] text-[var(--rejected)]">
+                Data inválida
+              </span>
+            )}
             {(dateFrom || dateTo) && (
               <button
                 onClick={() => { setDateFrom(""); setDateTo(""); }}
@@ -454,7 +469,7 @@ export function FinanceDashboard({
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r) => (
+                {pageItems.map((r) => (
                   <tr
                     key={r.id}
                     onClick={() => setOpenRequest(r)}
@@ -507,7 +522,35 @@ export function FinanceDashboard({
             </table>
           </div>
         )}
+        <Pagination
+          page={page}
+          pageCount={pageCount}
+          onPage={setPage}
+          total={total}
+          start={start}
+          end={end}
+        />
       </div>
+
+      {payTarget && (
+        <ConfirmDialog
+          title={`Marcar ${payTarget.display_id} como paga?`}
+          message={`${formatBRL(Number(payTarget.total_amount))} — informe a referência do pagamento, se houver.`}
+          confirmLabel="Marcar como paga"
+          busy={busyId === payTarget.id}
+          onConfirm={() => void confirmPay()}
+          onCancel={() => setPayTarget(null)}
+        >
+          <input
+            value={payRef}
+            onChange={(e) => setPayRef(e.target.value)}
+            placeholder="Referência do pagamento (opcional)"
+            maxLength={200}
+            autoFocus
+            className="w-full rounded-lg border border-[var(--line-strong)] bg-[var(--bg)] px-3 py-2 text-sm outline-none transition focus:border-[var(--accent)]"
+          />
+        </ConfirmDialog>
+      )}
 
       {openRequest && (
         <RequestDrawer

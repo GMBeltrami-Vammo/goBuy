@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
 
-import { auth } from "@/auth";
+import { getSessionContext } from "@/lib/auth";
+import { isSameOrigin } from "@/lib/http";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { AppRole } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-const ADMIN_EMAIL = "gabriel.beltrami@vammo.com";
-
 async function requireAdmin() {
-  const session = await auth();
-  return session?.user?.email?.toLowerCase() === ADMIN_EMAIL ? session : null;
+  const ctx = await getSessionContext();
+  return ctx?.roles.includes("admin") ? ctx : null;
 }
 
 export async function GET() {
@@ -44,7 +43,11 @@ export async function GET() {
 const VALID_ROLES: AppRole[] = ["finance", "fiscal", "admin"];
 
 export async function POST(request: Request) {
-  if (!(await requireAdmin())) {
+  if (!isSameOrigin(request)) {
+    return NextResponse.json({ error: "Origem inválida." }, { status: 403 });
+  }
+  const ctx = await requireAdmin();
+  if (!ctx) {
     return NextResponse.json({ error: "Acesso negado." }, { status: 403 });
   }
 
@@ -71,18 +74,22 @@ export async function POST(request: Request) {
   const { error } = await admin
     .from("user_roles")
     .upsert(
-      { user_email: email, role, granted_by_email: ADMIN_EMAIL },
+      { user_email: email, role, granted_by_email: ctx.email },
       { onConflict: "user_email,role" },
     );
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[admin/roles POST] upsert failed:", error.message);
+    return NextResponse.json({ error: "Não foi possível salvar a role." }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true }, { status: 201 });
 }
 
 export async function DELETE(request: Request) {
+  if (!isSameOrigin(request)) {
+    return NextResponse.json({ error: "Origem inválida." }, { status: 403 });
+  }
   if (!(await requireAdmin())) {
     return NextResponse.json({ error: "Acesso negado." }, { status: 403 });
   }
@@ -111,7 +118,8 @@ export async function DELETE(request: Request) {
     .eq("role", role);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[admin/roles DELETE] delete failed:", error.message);
+    return NextResponse.json({ error: "Não foi possível remover a role." }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

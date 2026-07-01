@@ -42,12 +42,14 @@ export function NewRequestModal({
 }) {
   useBodyScrollLock();
 
-  // Dismiss on Esc
+  // Dismiss on Esc. Routed through dismissRef so that, once the request has been
+  // created (retry state), closing still notifies the parent to refresh.
+  const dismissRef = useRef<() => void>(() => onClose());
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") dismissRef.current(); };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, []);
 
   const [type, setType] = useState<RequestType>("products");
   const [supplier, setSupplier] = useState("");
@@ -75,6 +77,14 @@ export function NewRequestModal({
   const [stagedDocs, setStagedDocs] = useState<StagedDoc[]>([]);
   const [docType, setDocType] = useState<DocumentType>(CREATE_DOC_TYPES[0]);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Synchronous guard against a rapid double-click submitting the request twice
+  // (the `sending` state disables the button, but only after a re-render).
+  const submittingRef = useRef(false);
+  // After the request is created, uploads that fail are kept here so the user
+  // can retry them against the already-created request (never a duplicate).
+  const [created, setCreated] = useState<{ id: string; display_id: string } | null>(null);
+  const [failedDocs, setFailedDocs] = useState<StagedDoc[]>([]);
+  const [retrying, setRetrying] = useState(false);
 
   const activeCurrency =
     currency === CURRENCY_CUSTOM ? customCurrency.trim().toUpperCase() : currency;
@@ -130,7 +140,27 @@ export function NewRequestModal({
   );
   const lastPct = Math.round((100 - othersSum) * 100) / 100;
 
+  // Upload a set of staged docs to an existing request; returns the ones that
+  // failed so the caller can offer a retry.
+  const uploadDocs = async (reqId: string, docs: StagedDoc[]): Promise<StagedDoc[]> => {
+    const failed: StagedDoc[] = [];
+    for (const doc of docs) {
+      try {
+        const form = new FormData();
+        form.set("file", doc.file);
+        form.set("request_id", reqId);
+        form.set("doc_type", doc.docType);
+        const up = await fetch("/api/documents", { method: "POST", body: form });
+        if (!up.ok) failed.push(doc);
+      } catch {
+        failed.push(doc);
+      }
+    }
+    return failed;
+  };
+
   const submit = async () => {
+    if (submittingRef.current) return;
     const errs: Record<string, string> = {};
 
     if (!supplier.trim())
@@ -203,6 +233,7 @@ export function NewRequestModal({
       if (advanceDeadline) payload.advance_settlement_deadline = advanceDeadline;
     }
 
+    submittingRef.current = true;
     setSending(true);
     let res: Response;
     try {
@@ -212,12 +243,14 @@ export function NewRequestModal({
         body: JSON.stringify(payload),
       });
     } catch {
+      submittingRef.current = false;
       setSending(false);
       setServerError("Erro de rede. Verifique sua conexão e tente novamente.");
       return;
     }
 
     if (!res.ok) {
+      submittingRef.current = false;
       setSending(false);
       const body = await res.json().catch(() => ({})) as { error?: string };
       setServerError(body.error ?? "Erro ao enviar solicitação.");
@@ -226,29 +259,29 @@ export function NewRequestModal({
 
     const data = await res.json() as { id: string; display_id: string };
 
-    // Upload any staged documents now that the request exists. Best-effort:
-    // a failed upload never blocks the request — the user can retry from the
-    // request drawer afterwards.
-    let failed = 0;
-    for (const doc of stagedDocs) {
-      try {
-        const form = new FormData();
-        form.set("file", doc.file);
-        form.set("request_id", data.id);
-        form.set("doc_type", doc.docType);
-        const up = await fetch("/api/documents", { method: "POST", body: form });
-        if (!up.ok) failed += 1;
-      } catch {
-        failed += 1;
-      }
-    }
+    // Upload staged documents now that the request exists. The request itself
+    // already succeeded, so failures never roll it back — instead we surface
+    // the failed files and let the user retry them (see the retry panel).
+    const failed = await uploadDocs(data.id, stagedDocs);
     setSending(false);
 
-    const note =
-      failed > 0
-        ? `Atenção: ${failed} documento(s) não foram anexados — reenvie pela solicitação.`
-        : undefined;
-    onSubmitted(data.display_id, note);
+    if (failed.length === 0) {
+      onSubmitted(data.display_id);
+      return;
+    }
+    // Keep the modal open in retry mode.
+    setCreated(data);
+    setFailedDocs(failed);
+  };
+
+  // Retry only the documents that failed, against the already-created request.
+  const retryFailedDocs = async () => {
+    if (!created) return;
+    setRetrying(true);
+    const stillFailed = await uploadDocs(created.id, failedDocs);
+    setRetrying(false);
+    setFailedDocs(stillFailed);
+    if (stillFailed.length === 0) onSubmitted(created.display_id);
   };
 
   const addStagedFiles = (files: FileList | null) => {
@@ -258,16 +291,92 @@ export function NewRequestModal({
     if (fileRef.current) fileRef.current.value = "";
   };
 
+  // Keep the dismiss behaviour current: before creation, just close; after
+  // creation, notify the parent (with a note about any still-unattached docs)
+  // so the new request shows up in the list.
+  dismissRef.current = () => {
+    if (created) {
+      onSubmitted(
+        created.display_id,
+        failedDocs.length > 0
+          ? `Atenção: ${failedDocs.length} documento(s) não foram anexados — reenvie pela solicitação.`
+          : undefined,
+      );
+    } else {
+      onClose();
+    }
+  };
+
+  // Retry state: the request exists, but some documents still need attaching.
+  if (created && failedDocs.length > 0) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 p-4 backdrop-blur-[2px] sm:p-8"
+        onMouseDown={(e) => e.target === e.currentTarget && dismissRef.current()}
+      >
+        <div className="modal-enter w-full max-w-md rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
+          <div className="flex items-center justify-between border-b border-[var(--line)] px-6 py-4">
+            <h2 className="text-lg font-bold">Solicitação {created.display_id} criada</h2>
+            <button
+              onClick={() => dismissRef.current()}
+              aria-label="Fechar"
+              className="text-[var(--faint)] hover:text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="space-y-4 px-6 py-5">
+            <p
+              role="alert"
+              className="rounded-lg border border-[var(--rejected)] bg-[var(--rejected-soft)] px-4 py-2.5 text-sm text-[var(--rejected)]"
+            >
+              A solicitação foi criada, mas {failedDocs.length} documento(s) não foram anexados.
+              Tente reenviar abaixo — ou conclua e anexe depois pela própria solicitação.
+            </p>
+            <ul className="space-y-1.5">
+              {failedDocs.map((d, i) => (
+                <li
+                  key={i}
+                  className="flex items-center gap-2.5 rounded-lg border border-[var(--line)] px-3 py-2 text-sm"
+                >
+                  <span className="v-tabular rounded bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-bold uppercase text-[var(--accent)]">
+                    {DOC_TYPE_LABEL[d.docType]}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{d.file.name}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="flex items-center justify-end gap-2 border-t border-[var(--line)] px-6 py-4">
+            <button
+              onClick={() => dismissRef.current()}
+              className="rounded-lg border border-[var(--line-strong)] px-4 py-2 text-sm font-medium hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
+              Concluir mesmo assim
+            </button>
+            <button
+              onClick={() => void retryFailedDocs()}
+              disabled={retrying}
+              className="rounded-lg bg-[var(--accent)] px-5 py-2 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
+            >
+              {retrying ? "Reenviando…" : "Tentar novamente"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 p-4 backdrop-blur-[2px] sm:p-8"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+      onMouseDown={(e) => e.target === e.currentTarget && dismissRef.current()}
     >
       <div className="modal-enter w-full max-w-2xl rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
         <div className="flex items-center justify-between border-b border-[var(--line)] px-6 py-4">
           <h2 className="text-lg font-bold">Nova solicitação</h2>
           <button
-            onClick={onClose}
+            onClick={() => dismissRef.current()}
             aria-label="Fechar"
             className="text-[var(--faint)] hover:text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
           >
@@ -652,8 +761,7 @@ export function NewRequestModal({
           {type === "advance" && (
             <div className="space-y-4">
               <p className="rounded-lg border border-[var(--pending)] bg-[var(--pending-soft)] px-4 py-2.5 text-xs text-[var(--pending-text-strong)]">
-                Adiantamentos exigem prestação de contas. Valores acima de R$ 5.000 passam por
-                validação adicional do Financeiro.
+                Adiantamentos exigem prestação de contas até o prazo informado abaixo.
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label={`Valor (${currency})`} error={fieldErrors.advanceValue}>
@@ -786,7 +894,7 @@ export function NewRequestModal({
           </div>
           <div className="flex gap-2">
             <button
-              onClick={onClose}
+              onClick={() => dismissRef.current()}
               className="rounded-lg border border-[var(--line-strong)] px-4 py-2 text-sm font-medium hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             >
               Cancelar

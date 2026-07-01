@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { StatusBadge } from "@/components/status-badge";
 import type { RequestStatus } from "@/lib/types";
 
@@ -56,12 +57,13 @@ const ROLE_LABEL: Record<AppRole, string> = {
   fiscal: "Fiscal",
   admin: "Admin",
 };
-// Neutral, non-status chip styles — roles aren't a status, so they must not
-// borrow request-status colors (--approved, --awaiting-payment, etc.).
+// Dedicated role-badge tokens — distinct from every request-status color
+// (--approved, --awaiting-payment, etc.) so a role chip can't be misread as
+// a status. Fiscal reuses --accent, the app's one neon-per-view accent.
 const ROLE_CHIP: Record<AppRole, string> = {
-  finance: "border border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)]",
+  finance: "bg-[var(--role-finance-soft)] text-[var(--role-finance)]",
   fiscal: "bg-[var(--accent-soft)] text-[var(--accent)]",
-  admin: "border border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)]",
+  admin: "bg-[var(--role-admin-soft)] text-[var(--role-admin)]",
 };
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
@@ -232,6 +234,7 @@ export function AdminDashboard() {
   const [requests, setRequests] = useState<RequestRow[] | null>(null);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<RequestRow | null>(null);
 
   const flash = (msg: string, ok = true) => {
     setToast({ msg, ok });
@@ -433,8 +436,9 @@ export function AdminDashboard() {
     }
   };
 
-  const deleteRequest = async (id: string, displayId: string) => {
-    if (!confirm(`Excluir permanentemente ${displayId}? Esta ação não pode ser desfeita.`)) return;
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const { id, display_id: displayId } = deleteTarget;
     setDeletingId(id);
     const res = await fetch("/api/admin/cleanup", {
       method: "DELETE",
@@ -442,8 +446,10 @@ export function AdminDashboard() {
       body: JSON.stringify({ id }),
     });
     setDeletingId(null);
+    setDeleteTarget(null);
     if (res.ok) {
-      flash(`${displayId} excluída`);
+      const body = (await res.json().catch(() => ({}))) as { warning?: string };
+      flash(body.warning ? `${displayId} excluída. ${body.warning}` : `${displayId} excluída`);
       setRequests((prev) => prev?.filter((r) => r.id !== id) ?? null);
     } else {
       const err = (await res.json()) as { error?: string };
@@ -488,6 +494,18 @@ export function AdminDashboard() {
         >
           {toast.msg}
         </div>
+      )}
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title={`Excluir ${deleteTarget.display_id}?`}
+          message="A solicitação e todos os seus documentos, eventos e itens serão excluídos permanentemente. Esta ação não pode ser desfeita."
+          confirmLabel="Excluir permanentemente"
+          tone="danger"
+          busy={deletingId === deleteTarget.id}
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => setDeleteTarget(null)}
+        />
       )}
 
       {/* ── Section 1: Roles ─────────────────────────────────────────────────── */}
@@ -907,7 +925,7 @@ export function AdminDashboard() {
                           <Btn
                             variant="ghost"
                             disabled={deletingId === r.id}
-                            onClick={() => void deleteRequest(r.id, r.display_id)}
+                            onClick={() => setDeleteTarget(r)}
                           >
                             {deletingId === r.id ? "Excluindo..." : "Excluir"}
                           </Btn>

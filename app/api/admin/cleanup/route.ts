@@ -1,19 +1,18 @@
 import { NextResponse } from "next/server";
 
-import { auth } from "@/auth";
+import { getSessionContext } from "@/lib/auth";
+import { isSameOrigin } from "@/lib/http";
 import { DOCUMENTS_BUCKET, supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
-
-const ADMIN_EMAIL = "gabriel.beltrami@vammo.com";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // GET — list all requests (for test cleanup UI)
 export async function GET() {
-  const session = await auth();
-  if (session?.user?.email?.toLowerCase() !== ADMIN_EMAIL) {
+  const ctx = await getSessionContext();
+  if (!ctx?.roles.includes("admin")) {
     return NextResponse.json({ error: "Acesso negado." }, { status: 403 });
   }
 
@@ -27,7 +26,8 @@ export async function GET() {
     .limit(200);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[admin/cleanup GET] query failed:", error.message);
+    return NextResponse.json({ error: "Não foi possível carregar as solicitações." }, { status: 500 });
   }
 
   return NextResponse.json({ requests: data ?? [] });
@@ -35,8 +35,11 @@ export async function GET() {
 
 // DELETE — permanently remove a single request and its storage files
 export async function DELETE(request: Request) {
-  const session = await auth();
-  if (session?.user?.email?.toLowerCase() !== ADMIN_EMAIL) {
+  if (!isSameOrigin(request)) {
+    return NextResponse.json({ error: "Origem inválida." }, { status: 403 });
+  }
+  const ctx = await getSessionContext();
+  if (!ctx?.roles.includes("admin")) {
     return NextResponse.json({ error: "Acesso negado." }, { status: 403 });
   }
 
@@ -60,10 +63,20 @@ export async function DELETE(request: Request) {
     .select("storage_path")
     .eq("request_id", id);
 
-  // Remove files from storage (best-effort — don't block on failure)
+  // Remove files from storage first, capturing any that couldn't be deleted so
+  // they can be surfaced (orphaned files would otherwise linger silently).
+  let orphanWarning: string | undefined;
   if (docs?.length) {
     const paths = docs.map((d) => d.storage_path as string);
-    await admin.storage.from(DOCUMENTS_BUCKET).remove(paths);
+    const { data: removed, error: rmError } = await admin.storage
+      .from(DOCUMENTS_BUCKET)
+      .remove(paths);
+    if (rmError) {
+      console.error("[admin/cleanup DELETE] storage remove failed:", rmError.message);
+      orphanWarning = `${paths.length} arquivo(s) podem não ter sido removidos do storage.`;
+    } else if ((removed?.length ?? 0) < paths.length) {
+      orphanWarning = `${paths.length - (removed?.length ?? 0)} arquivo(s) não foram encontrados no storage.`;
+    }
   }
 
   // Delete the request — CASCADE removes items, events, documents, slack queue
@@ -73,8 +86,9 @@ export async function DELETE(request: Request) {
     .eq("id", id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[admin/cleanup DELETE] delete failed:", error.message);
+    return NextResponse.json({ error: "Não foi possível excluir a solicitação." }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, warning: orphanWarning });
 }

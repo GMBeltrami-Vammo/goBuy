@@ -1,8 +1,6 @@
 "use client";
 
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-
-import { formatBRL } from "@/lib/format";
+import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 
 /**
  * Donut: budget consumed vs available for one cost center (current month).
@@ -48,18 +46,6 @@ export function BudgetDonut({
               <Cell key={i} fill={colors[i]} />
             ))}
           </Pie>
-          {budget > 0 && (
-            <Tooltip
-              formatter={(value: number | string) => formatBRL(Number(value))}
-              contentStyle={{
-                background: "var(--surface)",
-                border: "1px solid var(--line)",
-                borderRadius: 10,
-                fontSize: 12,
-                color: "var(--ink)",
-              }}
-            />
-          )}
         </PieChart>
       </ResponsiveContainer>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">

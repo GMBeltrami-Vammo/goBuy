@@ -34,6 +34,41 @@ export const brtYmd = (iso: string): string =>
     day: "2-digit",
   }).format(new Date(iso));
 
+// ─── dd/mm/yyyy date-filter helpers (shared by the dashboards) ────────────────
+
+/** Auto-slash mask for dd/mm/yyyy filter inputs. */
+export const maskDMY = (raw: string): string => {
+  const d = raw.replace(/\D/g, "").slice(0, 8);
+  if (d.length > 4) return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`;
+  if (d.length > 2) return `${d.slice(0, 2)}/${d.slice(2)}`;
+  return d;
+};
+
+/**
+ * Parse dd/mm/yyyy → yyyy-mm-dd. Returns "" for incomplete or invalid input,
+ * rejecting overflow dates (e.g. 31/02/2026) that Date would silently roll over.
+ */
+export const parseDMY = (s: string): string => {
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return "";
+  const [, dd, mm, yyyy] = m;
+  const day = Number(dd);
+  const mon = Number(mm);
+  const year = Number(yyyy);
+  if (mon < 1 || mon > 12 || day < 1 || day > 31) return "";
+  const d = new Date(Date.UTC(year, mon - 1, day));
+  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== mon - 1 || d.getUTCDate() !== day) {
+    return "";
+  }
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+/**
+ * True when a date field is fully typed (10 chars) but not a real date — used
+ * to show inline validation feedback instead of failing silently.
+ */
+export const isInvalidDMY = (s: string): boolean => s.length === 10 && parseDMY(s) === "";
+
 export const STATUS_LABEL: Record<string, string> = {
   pending: "Pendente",
   approved: "Aprovada",

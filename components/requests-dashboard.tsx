@@ -3,31 +3,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { NewRequestModal } from "@/components/new-request-modal";
+import { Pagination, usePagination } from "@/components/pagination";
 import { RequestDrawer } from "@/components/request-drawer";
 import { StatusBadge, TypeBadge } from "@/components/status-badge";
-import { brtYmd, formatBRL, formatDate, formatDateOnlyBR, STATUS_LABEL } from "@/lib/format";
+import {
+  brtYmd,
+  formatBRL,
+  formatDate,
+  formatDateOnlyBR,
+  isInvalidDMY,
+  maskDMY,
+  parseDMY,
+  STATUS_LABEL,
+} from "@/lib/format";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { CostCenter, PurchaseRequest } from "@/lib/types";
 
 const IN_PROGRESS = ["approved", "awaiting_finance", "awaiting_payment"];
-
-// Parse dd/mm/yyyy → yyyy-mm-dd. Returns "" for incomplete or invalid input.
-const parseDDMMYYYY = (s: string): string => {
-  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (!m) return "";
-  const [, dd, mm, yyyy] = m;
-  const d = new Date(`${yyyy}-${mm}-${dd}`);
-  if (isNaN(d.getTime())) return "";
-  return `${yyyy}-${mm}-${dd}`;
-};
-
-// dd/mm/yyyy auto-slash mask for the date inputs.
-const maskDate = (raw: string): string => {
-  const digits = raw.replace(/\D/g, "").slice(0, 8);
-  if (digits.length > 4) return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
-  if (digits.length > 2) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-  return digits;
-};
 
 export function RequestsDashboard({
   email,
@@ -104,8 +96,8 @@ export function RequestsDashboard({
   }, [requests]);
 
   const filtered = useMemo(() => {
-    const fromYMD = parseDDMMYYYY(dateFrom);
-    const toYMD = parseDDMMYYYY(dateTo);
+    const fromYMD = parseDMY(dateFrom);
+    const toYMD = parseDMY(dateTo);
     let list = requests ?? [];
     if (statusFilter === "in_progress") list = list.filter((r) => IN_PROGRESS.includes(r.status));
     else if (statusFilter !== "all") list = list.filter((r) => r.status === statusFilter);
@@ -125,11 +117,17 @@ export function RequestsDashboard({
     return list;
   }, [requests, statusFilter, ccFilter, dateFrom, dateTo, dateField]);
 
+  const { page, setPage, pageCount, pageItems, total, start, end } = usePagination(
+    filtered,
+    `${statusFilter}|${ccFilter}|${dateFrom}|${dateTo}|${dateField}`,
+  );
+
   const flash = (msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast(null), 5500);
   };
 
+  const dateInvalid = isInvalidDMY(dateFrom) || isInvalidDMY(dateTo);
   const hasFilters = statusFilter !== "all" || ccFilter !== "all" || !!dateFrom || !!dateTo;
   const clearFilters = () => {
     setStatusFilter("all");
@@ -262,8 +260,11 @@ export function RequestsDashboard({
             maxLength={10}
             placeholder="dd/mm/yyyy"
             value={dateFrom}
-            onChange={(e) => setDateFrom(maskDate(e.target.value))}
-            className="w-24 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
+            onChange={(e) => setDateFrom(maskDMY(e.target.value))}
+            aria-invalid={isInvalidDMY(dateFrom)}
+            className={`w-24 rounded-md border bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] ${
+              isInvalidDMY(dateFrom) ? "border-[var(--rejected)]" : "border-[var(--line-strong)]"
+            }`}
             aria-label="De (dd/mm/yyyy)"
           />
           <span className="text-[11px] text-[var(--faint)]">—</span>
@@ -273,10 +274,18 @@ export function RequestsDashboard({
             maxLength={10}
             placeholder="dd/mm/yyyy"
             value={dateTo}
-            onChange={(e) => setDateTo(maskDate(e.target.value))}
-            className="w-24 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
+            onChange={(e) => setDateTo(maskDMY(e.target.value))}
+            aria-invalid={isInvalidDMY(dateTo)}
+            className={`w-24 rounded-md border bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] ${
+              isInvalidDMY(dateTo) ? "border-[var(--rejected)]" : "border-[var(--line-strong)]"
+            }`}
             aria-label="Até (dd/mm/yyyy)"
           />
+          {dateInvalid && (
+            <span role="alert" className="text-[11px] text-[var(--rejected)]">
+              Data inválida
+            </span>
+          )}
           {hasFilters && (
             <button
               onClick={clearFilters}
@@ -322,7 +331,7 @@ export function RequestsDashboard({
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r) => {
+                {pageItems.map((r) => {
                   const heads = (r.cost_centers?.cost_center_heads ?? [])
                     .map((h) => h.head_name ?? h.head_email.split("@")[0])
                     .join(", ");
@@ -374,6 +383,14 @@ export function RequestsDashboard({
             </table>
           </div>
         )}
+        <Pagination
+          page={page}
+          pageCount={pageCount}
+          onPage={setPage}
+          total={total}
+          start={start}
+          end={end}
+        />
       </div>
 
       {showNew && (

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { StatusBadge, TypeBadge } from "@/components/status-badge";
 import {
   DOC_TYPE_LABEL,
@@ -69,7 +70,11 @@ export function RequestDrawer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Synchronous double-submit guard: `busy` disables the buttons, but only
+  // after a re-render, so a fast double-click could otherwise fire twice.
+  const busyRef = useRef(false);
 
   // Payment-info form (requester, after approval)
   const [nfNumber, setNfNumber] = useState(request.nf_number ?? "");
@@ -127,9 +132,12 @@ export function RequestDrawer({
     fn: () => PromiseLike<{ error: { message: string } | null }>,
     done: string,
   ) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setError(null);
     const { error: e } = await fn();
+    busyRef.current = false;
     setBusy(false);
     if (e) {
       setError(e.message);
@@ -138,18 +146,21 @@ export function RequestDrawer({
     onChanged(done);
   };
 
-  const cancel = () =>
-    window.confirm(`Cancelar a solicitação ${request.display_id}?`) &&
-    act(
+  const doCancel = async () => {
+    await act(
       () => supabaseBrowser(supabaseToken).rpc("cancel_purchase_request", { p_request_id: request.id }),
       `${request.display_id} cancelada.`,
     );
+    setConfirmingCancel(false);
+  };
 
   const decide = async (action: "approve" | "reject") => {
     if (action === "reject" && !rejectReason.trim()) {
       setError("Informe o motivo da recusa.");
       return;
     }
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setError(null);
     const res = await fetch(`/api/requests/${request.id}/decide`, {
@@ -157,6 +168,7 @@ export function RequestDrawer({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, reason: rejectReason.trim() || undefined }),
     });
+    busyRef.current = false;
     setBusy(false);
     if (!res.ok) {
       const b = await res.json().catch(() => ({})) as { error?: string };
@@ -191,6 +203,8 @@ export function RequestDrawer({
       setError("Anexe o PDF do boleto antes de enviar.");
       return;
     }
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setError(null);
     const res = await fetch(`/api/requests/${request.id}/payment-info`, {
@@ -206,6 +220,7 @@ export function RequestDrawer({
         bank_account: payMethod === "transfer" ? bankAccount.trim() : undefined,
       }),
     });
+    busyRef.current = false;
     setBusy(false);
     if (!res.ok) {
       const b = (await res.json().catch(() => ({}))) as { error?: string };
@@ -223,6 +238,8 @@ export function RequestDrawer({
   };
 
   const financeConfirm = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setError(null);
     const { error: e } = await supabaseBrowser(supabaseToken).rpc("finance_confirm_payment_info", {
@@ -230,6 +247,7 @@ export function RequestDrawer({
       p_payment_type: financePaymentType,
       p_expected_payment_date: financeExpectedDate || null,
     });
+    busyRef.current = false;
     setBusy(false);
     if (e) {
       setError(e.message);
@@ -239,6 +257,8 @@ export function RequestDrawer({
   };
 
   const upload = async (file: File) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -255,6 +275,7 @@ export function RequestDrawer({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha no upload.");
     } finally {
+      busyRef.current = false;
       setBusy(false);
       if (fileRef.current) fileRef.current.value = "";
     }
@@ -716,7 +737,7 @@ export function RequestDrawer({
         {canCancel && !canDecide && (
           <div className="sticky bottom-0 border-t border-[var(--line)] bg-[var(--surface)] px-6 py-4">
             <button
-              onClick={cancel}
+              onClick={() => setConfirmingCancel(true)}
               disabled={busy}
               className="w-full rounded-lg border border-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-[var(--rejected)] transition hover:bg-[var(--rejected-soft)] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
             >
@@ -725,6 +746,19 @@ export function RequestDrawer({
           </div>
         )}
       </aside>
+
+      {confirmingCancel && (
+        <ConfirmDialog
+          title={`Cancelar ${request.display_id}?`}
+          message="A solicitação será cancelada e não poderá ser reaberta."
+          confirmLabel="Cancelar solicitação"
+          cancelLabel="Voltar"
+          tone="danger"
+          busy={busy}
+          onConfirm={() => void doCancel()}
+          onCancel={() => setConfirmingCancel(false)}
+        />
+      )}
     </div>
   );
 }

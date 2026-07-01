@@ -3,13 +3,11 @@ import { redirect } from "next/navigation";
 import { AdminDashboard } from "@/components/admin-dashboard";
 import { getSessionContext } from "@/lib/auth";
 
-const SUPER_ADMIN = "gabriel.beltrami@vammo.com";
-
 export const metadata = { title: "Admin — Lumen" };
 
 export default async function AdminPage() {
   const ctx = await getSessionContext();
-  if (!ctx || ctx.email.toLowerCase() !== SUPER_ADMIN) redirect("/");
+  if (!ctx || !ctx.roles.includes("admin")) redirect("/");
 
   return (
     <div>

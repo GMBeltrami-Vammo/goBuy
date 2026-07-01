@@ -2,12 +2,11 @@ import { read, utils } from "xlsx";
 
 import { NextResponse } from "next/server";
 
-import { auth } from "@/auth";
+import { getSessionContext } from "@/lib/auth";
+import { isSameOrigin } from "@/lib/http";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
-
-const ADMIN_EMAIL = "gabriel.beltrami@vammo.com";
 
 interface ImportRow {
   code: string;
@@ -77,8 +76,11 @@ function parseRows(bytes: Buffer): ImportRow[] {
 }
 
 export async function POST(request: Request) {
-  const session = await auth();
-  if (session?.user?.email?.toLowerCase() !== ADMIN_EMAIL) {
+  if (!isSameOrigin(request)) {
+    return NextResponse.json({ error: "Origem inválida." }, { status: 403 });
+  }
+  const ctx = await getSessionContext();
+  if (!ctx?.roles.includes("admin")) {
     return NextResponse.json({ error: "Acesso negado." }, { status: 403 });
   }
 
@@ -145,8 +147,9 @@ export async function POST(request: Request) {
     .select("id, code");
 
   if (ccError) {
+    console.error("[admin/import] cost_centers upsert failed:", ccError.message);
     return NextResponse.json(
-      { error: `Erro ao importar centros: ${ccError.message}` },
+      { error: "Não foi possível importar os centros de custo. Nenhuma alteração foi salva." },
       { status: 500 },
     );
   }
@@ -169,9 +172,11 @@ export async function POST(request: Request) {
       .upsert(headRows, { onConflict: "cost_center_id,head_email" });
 
     if (headError) {
+      console.error("[admin/import] cost_center_heads upsert failed:", headError.message);
       return NextResponse.json(
         {
-          error: `Centros importados, mas houve erro nos responsáveis: ${headError.message}`,
+          error:
+            "Centros de custo importados, mas alguns responsáveis não foram vinculados. Reenvie a mesma planilha para concluir o vínculo (a operação é idempotente).",
         },
         { status: 500 },
       );

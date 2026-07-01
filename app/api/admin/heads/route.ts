@@ -1,18 +1,20 @@
 import { NextResponse } from "next/server";
 
-import { auth } from "@/auth";
+import { getSessionContext } from "@/lib/auth";
+import { isSameOrigin } from "@/lib/http";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
-const ADMIN_EMAIL = "gabriel.beltrami@vammo.com";
-
 async function requireAdmin() {
-  const session = await auth();
-  return session?.user?.email?.toLowerCase() === ADMIN_EMAIL ? session : null;
+  const ctx = await getSessionContext();
+  return ctx?.roles.includes("admin") ? ctx : null;
 }
 
 export async function POST(request: Request) {
+  if (!isSameOrigin(request)) {
+    return NextResponse.json({ error: "Origem inválida." }, { status: 403 });
+  }
   if (!(await requireAdmin())) {
     return NextResponse.json({ error: "Acesso negado." }, { status: 403 });
   }
@@ -42,13 +44,17 @@ export async function POST(request: Request) {
     );
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[admin/heads POST] upsert failed:", error.message);
+    return NextResponse.json({ error: "Não foi possível salvar o responsável." }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true }, { status: 201 });
 }
 
 export async function DELETE(request: Request) {
+  if (!isSameOrigin(request)) {
+    return NextResponse.json({ error: "Origem inválida." }, { status: 403 });
+  }
   if (!(await requireAdmin())) {
     return NextResponse.json({ error: "Acesso negado." }, { status: 403 });
   }
@@ -76,7 +82,8 @@ export async function DELETE(request: Request) {
     .eq("head_email", headEmail);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[admin/heads DELETE] delete failed:", error.message);
+    return NextResponse.json({ error: "Não foi possível remover o responsável." }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

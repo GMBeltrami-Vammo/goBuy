@@ -12,7 +12,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const canFinance = ctx.roles.includes("finance") || ctx.roles.includes("admin");
   const canFiscal = ctx.roles.includes("fiscal");
-  const isAdmin = ctx.email.toLowerCase() === "gabriel.beltrami@vammo.com";
+  const isAdmin = ctx.roles.includes("admin");
 
   return (
     <div className="mx-auto flex min-h-[calc(100vh-3px)] w-full max-w-[110rem] flex-col px-5 sm:px-8 lg:w-3/4">

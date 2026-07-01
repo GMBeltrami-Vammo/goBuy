@@ -50,6 +50,14 @@
      tokens are dark enough for white; dark-mode tokens are neon → need black. */
   --on-status: #ffffff;
 
+  /* Role badge colors — deliberately distinct from every status token above
+     (not pending/approved/rejected/paid/cancelled/awaiting-*) so a role chip
+     can never be misread as a request status. Fiscal reuses --accent. */
+  --role-finance: #0f766e;
+  --role-finance-soft: rgba(13, 148, 136, 0.14);
+  --role-admin: #be185d;
+  --role-admin-soft: rgba(190, 24, 93, 0.12);
+
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 6px 20px -10px rgba(0, 0, 0, 0.12);
 
   /* Categorical chart palette — cost-center pie/legend colors only (not
@@ -105,6 +113,11 @@
   --awaiting-payment: #d68a35;
   --awaiting-payment-soft: rgba(214, 138, 53, 0.18);
   --on-status: #000000; /* neon status tokens on grey → black foreground */
+
+  --role-finance: #2dd4bf;
+  --role-finance-soft: rgba(45, 212, 191, 0.16);
+  --role-admin: #f472b6;
+  --role-admin-soft: rgba(244, 114, 182, 0.16);
 
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 8px 28px -10px rgba(0, 0, 0, 0.6);
 

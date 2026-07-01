@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { Pagination, usePagination } from "@/components/pagination";
 import { RequestDrawer } from "@/components/request-drawer";
 import { StatusBadge, TypeBadge } from "@/components/status-badge";
 import { brtYmd, formatBRL, formatDate } from "@/lib/format";
@@ -156,9 +157,12 @@ export function HeadDashboard({
   }, [requests, sortKey, centerIds]);
 
   const recent = useMemo(
-    () => (requests ?? []).filter((r) => r.status !== "pending").slice(0, 12),
+    () => (requests ?? []).filter((r) => r.status !== "pending"),
     [requests],
   );
+
+  const pendingPager = usePagination(pending, sortKey);
+  const recentPager = usePagination(recent, "recent");
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -385,7 +389,7 @@ export function HeadDashboard({
                 </tr>
               </thead>
               <tbody>
-                {pending.map((r) => (
+                {pendingPager.pageItems.map((r) => (
                   <tr
                     key={r.id}
                     onClick={() => setOpenRequest(r)}
@@ -426,6 +430,14 @@ export function HeadDashboard({
             </table>
           </div>
         )}
+        <Pagination
+          page={pendingPager.page}
+          pageCount={pendingPager.pageCount}
+          onPage={pendingPager.setPage}
+          total={pendingPager.total}
+          start={pendingPager.start}
+          end={pendingPager.end}
+        />
       </div>
 
       {/* Recent decisions */}
@@ -439,7 +451,7 @@ export function HeadDashboard({
           <div className="overflow-x-auto">
             <table className="w-full" aria-label="Decisões recentes">
               <tbody>
-                {recent.map((r) => (
+                {recentPager.pageItems.map((r) => (
                   <tr
                     key={r.id}
                     onClick={() => setOpenRequest(r)}
@@ -467,6 +479,14 @@ export function HeadDashboard({
               </tbody>
             </table>
           </div>
+          <Pagination
+            page={recentPager.page}
+            pageCount={recentPager.pageCount}
+            onPage={recentPager.setPage}
+            total={recentPager.total}
+            start={recentPager.start}
+            end={recentPager.end}
+          />
         </div>
       )}
 
