@@ -320,21 +320,37 @@ export function FinanceDashboard({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar por ID, fornecedor ou solicitante…"
-              className="max-w-56 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
+              aria-label="Buscar por ID, fornecedor ou solicitante"
+              className="max-w-72 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             />
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              aria-label="Filtrar por status"
+              className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
               <option value="all">Todos os status</option>
               {Object.entries(STATUS_LABEL).map(([v, l]) => (
                 <option key={v} value={v}>{l}</option>
               ))}
             </select>
-            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]">
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              aria-label="Filtrar por tipo"
+              className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
               <option value="all">Todos os tipos</option>
               {Object.entries(TYPE_LABEL).map(([v, l]) => (
                 <option key={v} value={v}>{l}</option>
               ))}
             </select>
-            <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]">
+            <select
+              value={deptFilter}
+              onChange={(e) => setDeptFilter(e.target.value)}
+              aria-label="Filtrar por departamento"
+              className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
               <option value="all">Todos os departamentos</option>
               {departments.map((d) => (
                 <option key={d}>{d}</option>
@@ -346,12 +362,17 @@ export function FinanceDashboard({
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="v-tabular text-[10px] uppercase tracking-[0.15em] text-[var(--faint)]">Por</span>
-            <div className="flex items-center gap-0.5 rounded-md border border-[var(--line)] p-0.5">
+            <div
+              role="group"
+              aria-label="Filtrar por data de solicitação ou pagamento"
+              className="flex items-center gap-0.5 rounded-md border border-[var(--line)] p-0.5"
+            >
               {(["created", "payment"] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setDateField(f)}
-                  className={`rounded px-2 py-0.5 text-[11px] font-medium transition ${
+                  aria-pressed={dateField === f}
+                  className={`rounded px-2 py-0.5 text-[11px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
                     dateField === f
                       ? "bg-[var(--accent-soft)] text-[var(--accent)]"
                       : "text-[var(--muted)] hover:text-[var(--ink)]"
@@ -397,7 +418,7 @@ export function FinanceDashboard({
             {(dateFrom || dateTo) && (
               <button
                 onClick={() => { setDateFrom(""); setDateTo(""); }}
-                className="text-[11px] font-semibold text-[var(--accent)] hover:underline"
+                className="rounded text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               >
                 Limpar datas
               </button>

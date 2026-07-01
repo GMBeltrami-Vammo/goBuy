@@ -236,11 +236,16 @@ export function RequestsDashboard({
               <option key={id} value={String(id)}>{label}</option>
             ))}
           </select>
-          <div className="flex items-center gap-0.5 rounded-md border border-[var(--line)] p-0.5">
+          <div
+            role="group"
+            aria-label="Filtrar por data de solicitação ou pagamento"
+            className="flex items-center gap-0.5 rounded-md border border-[var(--line)] p-0.5"
+          >
             {(["created", "payment"] as const).map((f) => (
               <button
                 key={f}
                 onClick={() => setDateField(f)}
+                aria-pressed={dateField === f}
                 className={`rounded px-2 py-0.5 text-[11px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
                   dateField === f
                     ? "bg-[var(--accent-soft)] text-[var(--accent)]"
@@ -417,6 +422,13 @@ function SkeletonRow() {
   );
 }
 
+const TONE_CLASS: Record<"pending" | "approved" | "paid" | "accent", string> = {
+  pending: "text-[var(--pending)]",
+  approved: "text-[var(--approved)]",
+  paid: "text-[var(--paid)]",
+  accent: "text-[var(--accent)]",
+};
+
 function SummaryCard({
   label,
   value,
@@ -450,8 +462,7 @@ function SummaryCard({
         <div className="mt-2 h-7 w-20 animate-pulse rounded-md bg-[var(--surface-2)]" />
       ) : (
         <p
-          className={`mt-1.5 v-tabular font-bold ${small ? "text-lg" : "text-2xl"}`}
-          style={tone ? { color: `var(--${tone})` } : undefined}
+          className={`mt-1.5 v-tabular font-bold ${small ? "text-lg" : "text-2xl"} ${tone ? TONE_CLASS[tone] : ""}`}
         >
           {value}
         </p>

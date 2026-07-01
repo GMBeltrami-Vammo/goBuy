@@ -5,11 +5,9 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { formatBRL } from "@/lib/format";
 import type { CostCenter } from "@/lib/types";
 
-const PALETTE = [
-  "#22d3ee", "#818cf8", "#34d399", "#fb923c", "#f472b6",
-  "#a78bfa", "#38bdf8", "#4ade80", "#facc15", "#f87171",
-  "#e879f9", "#2dd4bf", "#60a5fa", "#fbbf24", "#a3e635",
-];
+// Theme-aware categorical palette — tokens defined in globals.css (--cc-1..15),
+// with distinct light/dark values per hue so contrast holds in both themes.
+const PALETTE = Array.from({ length: 15 }, (_, i) => `var(--cc-${i + 1})`);
 
 export type CCAggregate = {
   cc: CostCenter;
@@ -113,7 +111,7 @@ export function HeadAggregateChart({
                 <button
                   key={d.cc.id}
                   onClick={() => onOpenCenter(d.cc)}
-                  className="flex items-center gap-2 text-left transition hover:opacity-75"
+                  className="flex items-center gap-2 rounded text-left transition hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 >
                   <span
                     className="h-3 w-3 shrink-0 rounded-full"
@@ -153,7 +151,7 @@ export function HeadAggregateChart({
             <button
               key={d.cc.id}
               onClick={() => onOpenCenter(d.cc)}
-              className="flex w-full items-center gap-3 rounded-lg border border-[var(--line)] px-3 py-2.5 text-left transition hover:border-[var(--accent)]"
+              className="flex w-full items-center gap-3 rounded-lg border border-[var(--line)] px-3 py-2.5 text-left transition hover:border-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">

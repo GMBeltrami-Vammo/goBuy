@@ -187,10 +187,14 @@ export function HeadDashboard({
       <div className="reveal reveal-1 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Aprovações</h1>
-          <p className="mt-1 text-sm text-[var(--muted)]">
-            {centers.length} centro{centers.length === 1 ? "" : "s"} de custo sob sua
-            responsabilidade · {monthLabel}
-          </p>
+          {loading ? (
+            <div className="mt-2 h-4 w-64 animate-pulse rounded bg-[var(--surface-2)]" />
+          ) : (
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              {centers.length} centro{centers.length === 1 ? "" : "s"} de custo sob sua
+              responsabilidade · {monthLabel}
+            </p>
+          )}
         </div>
         {pending.length > 0 && (
           <span className="rounded-full bg-[var(--pending-soft)] px-4 py-1.5 v-tabular text-sm font-bold text-[var(--pending)]">
@@ -254,11 +258,16 @@ export function HeadDashboard({
           <p className="v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">
             Por centro de custo — {monthLabel}
           </p>
-          <div className="flex items-center gap-0.5 rounded-lg border border-[var(--line)] p-0.5">
+          <div
+            role="group"
+            aria-label="Alternar entre visualização em pizza ou barras"
+            className="flex items-center gap-0.5 rounded-lg border border-[var(--line)] p-0.5"
+          >
             {(["pizza", "barra"] as const).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
+                aria-pressed={viewMode === mode}
                 className={`rounded-md px-3 py-1 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
                   viewMode === mode
                     ? "bg-[var(--accent-soft)] text-[var(--accent)]"

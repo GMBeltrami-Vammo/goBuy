@@ -55,7 +55,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                 type="submit"
                 title="Sair"
                 aria-label="Sair"
-                className="text-[var(--faint)] transition hover:text-[var(--rejected)]"
+                className="rounded text-[var(--faint)] transition hover:text-[var(--rejected)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               >
                 <svg
                   width="14"

@@ -51,6 +51,16 @@ export function RequestDrawer({
   onChanged: (message?: string) => void;
 }) {
   useBodyScrollLock();
+
+  // Dismiss on Esc
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   const [items, setItems] = useState<RequestItem[]>([]);
   const [events, setEvents] = useState<RequestEvent[]>([]);
   const [documents, setDocuments] = useState<RequestDocument[]>([]);
@@ -280,7 +290,13 @@ export function RequestDrawer({
                 <StatusBadge status={request.status} />
               </div>
             </div>
-            <button onClick={onClose} aria-label="Fechar" className="text-[var(--faint)] hover:text-[var(--ink)]">✕</button>
+            <button
+              onClick={onClose}
+              aria-label="Fechar"
+              className="text-[var(--faint)] hover:text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
+              ✕
+            </button>
           </div>
         </div>
 
@@ -369,7 +385,7 @@ export function RequestDrawer({
                       )}
                       <span className="min-w-0 flex-1 truncate text-[var(--muted)]">
                         {a.cost_centers
-                          ? `${a.cost_centers.code} — ${a.cost_centers.department}: ${a.cost_centers.name}`
+                          ? `${a.cost_centers.code} — ${a.cost_centers.name}`
                           : a.cost_center_id}
                         {a.approved_by_email && (
                           <span className="ml-1 text-[11px] text-[var(--faint)]">
@@ -433,7 +449,7 @@ export function RequestDrawer({
                   <li key={d.id}>
                     <button
                       onClick={() => download(d.id)}
-                      className="flex w-full items-center gap-2.5 rounded-lg border border-[var(--line)] px-3 py-2 text-left text-sm transition hover:border-[var(--accent)]"
+                      className="flex w-full items-center gap-2.5 rounded-lg border border-[var(--line)] px-3 py-2 text-left text-sm transition hover:border-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                     >
                       <span className="v-tabular rounded bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-bold uppercase text-[var(--accent)]">
                         {DOC_TYPE_LABEL[d.doc_type] ?? d.doc_type}
@@ -474,7 +490,7 @@ export function RequestDrawer({
                 <button
                   onClick={() => fileRef.current?.click()}
                   disabled={busy}
-                  className="flex-1 rounded-lg border border-dashed border-[var(--line-strong)] px-3 py-2 text-xs text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
+                  className="flex-1 rounded-lg border border-dashed border-[var(--line-strong)] px-3 py-2 text-xs text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 >
                   {busy
                     ? "Enviando…"
@@ -531,7 +547,7 @@ export function RequestDrawer({
                         key={m}
                         type="button"
                         onClick={() => setPayMethod(m)}
-                        className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition ${
+                        className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
                           payMethod === m
                             ? "border-[var(--accent)] bg-[var(--surface)] text-[var(--accent)]"
                             : "border-[var(--line)] text-[var(--muted)] hover:border-[var(--accent)]"
@@ -585,7 +601,7 @@ export function RequestDrawer({
                 <button
                   onClick={() => void submitPaymentInfo()}
                   disabled={busy}
-                  className="w-full rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-60"
+                  className="w-full rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
                 >
                   {busy ? "Enviando…" : "Enviar ao financeiro"}
                 </button>
@@ -630,7 +646,7 @@ export function RequestDrawer({
                 <button
                   onClick={() => void financeConfirm()}
                   disabled={busy}
-                  className="w-full rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-60"
+                  className="w-full rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
                 >
                   {busy ? "Confirmando…" : "Confirmar — aguardando pagamento"}
                 </button>
@@ -683,14 +699,14 @@ export function RequestDrawer({
               <button
                 onClick={() => void decide("approve")}
                 disabled={busy}
-                className="flex-1 rounded-lg bg-[var(--approved)] px-4 py-2.5 text-sm font-bold text-[var(--on-status)] transition hover:opacity-90 disabled:opacity-60"
+                className="flex-1 rounded-lg bg-[var(--approved)] px-4 py-2.5 text-sm font-bold text-[var(--on-status)] transition hover:opacity-90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
               >
                 Aprovar
               </button>
               <button
                 onClick={() => void decide("reject")}
                 disabled={busy}
-                className="flex-1 rounded-lg bg-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-[var(--on-status)] transition hover:opacity-90 disabled:opacity-60"
+                className="flex-1 rounded-lg bg-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-[var(--on-status)] transition hover:opacity-90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
               >
                 Recusar
               </button>
@@ -702,7 +718,7 @@ export function RequestDrawer({
             <button
               onClick={cancel}
               disabled={busy}
-              className="w-full rounded-lg border border-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-[var(--rejected)] transition hover:bg-[var(--rejected-soft)] disabled:opacity-60"
+              className="w-full rounded-lg border border-[var(--rejected)] px-4 py-2.5 text-sm font-bold text-[var(--rejected)] transition hover:bg-[var(--rejected-soft)] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
             >
               Cancelar solicitação
             </button>

@@ -4,5 +4,9 @@ node_modules
 out
 *.tsbuildinfo
 next-env.d.ts
-.env.local
-.env*.local
+
+# Credentials / environment files — never commit
+.env*
+
+# Claude Code local session config (dev server launch config, etc.)
+.claude

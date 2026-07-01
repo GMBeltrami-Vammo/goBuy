@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -44,6 +44,16 @@ export function BudgetDetailModal({
   onOpenRequest: (r: PurchaseRequest) => void;
 }) {
   useBodyScrollLock();
+
+  // Dismiss on Esc
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   const monthKey = monthStart.slice(0, 7);
 
   const monthCommitted = useMemo(
@@ -116,7 +126,13 @@ export function BudgetDetailModal({
             <h2 className="text-lg font-bold">{center.name}</h2>
             <p className="text-xs capitalize text-[var(--muted)]">{monthLabel}</p>
           </div>
-          <button onClick={onClose} aria-label="Fechar" className="text-[var(--faint)] hover:text-[var(--ink)]">✕</button>
+          <button
+            onClick={onClose}
+            aria-label="Fechar"
+            className="text-[var(--faint)] hover:text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+          >
+            ✕
+          </button>
         </div>
 
         <div className="space-y-6 px-6 py-5">
@@ -209,7 +225,7 @@ export function BudgetDetailModal({
               <h3 className="mb-2 v-tabular text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--faint)]">
                 Pendentes de aprovação · {monthPending.length} · {formatBRL(pendingTotal)}
               </h3>
-              <ul className="max-h-48 overflow-y-auto rounded-lg border border-[var(--pending)]">
+              <ul className="max-h-48 overflow-y-auto rounded-lg border border-[var(--line)]">
                 {monthPending.map((r) => (
                   <li key={r.id}>
                     <button

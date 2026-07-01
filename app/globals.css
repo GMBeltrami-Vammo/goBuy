@@ -31,6 +31,9 @@
      text tones darkened for AA on light tints (vammo-ui badge style). */
   --pending: #9c8412;        /* warning #EFE133 family */
   --pending-soft: rgba(239, 225, 51, 0.18);
+  /* --pending itself is ~3.3:1 on --pending-soft — fine for a small badge dot,
+     short of AA for body text. Use for paragraph-length pending-toned copy. */
+  --pending-text-strong: #7a6300;
   --approved: #4c8c3b;       /* success #66BA50 family */
   --approved-soft: rgba(102, 186, 80, 0.14);
   --rejected: #c03b35;       /* error #DB4841 family */
@@ -48,6 +51,25 @@
   --on-status: #ffffff;
 
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 6px 20px -10px rgba(0, 0, 0, 0.12);
+
+  /* Categorical chart palette — cost-center pie/legend colors only (not
+     status, not accent). 600-shade on light for contrast against a white
+     surface, 400-shade on dark (see .dark block) for the same hue family. */
+  --cc-1: #0891b2;
+  --cc-2: #4f46e5;
+  --cc-3: #059669;
+  --cc-4: #ea580c;
+  --cc-5: #db2777;
+  --cc-6: #7c3aed;
+  --cc-7: #0284c7;
+  --cc-8: #16a34a;
+  --cc-9: #ca8a04;
+  --cc-10: #dc2626;
+  --cc-11: #c026d3;
+  --cc-12: #0d9488;
+  --cc-13: #2563eb;
+  --cc-14: #d97706;
+  --cc-15: #65a30d;
 }
 
 .dark {
@@ -69,6 +91,7 @@
   /* Base alert hexes are neon enough on grey. */
   --pending: #efe133;
   --pending-soft: rgba(239, 225, 51, 0.14);
+  --pending-text-strong: #efe133; /* already ~7:1 on grey — no separate tone needed */
   --approved: #66ba50;
   --approved-soft: rgba(102, 186, 80, 0.15);
   --rejected: #db4841;
@@ -84,6 +107,23 @@
   --on-status: #000000; /* neon status tokens on grey → black foreground */
 
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 8px 28px -10px rgba(0, 0, 0, 0.6);
+
+  /* Categorical chart palette — 400-shade on dark, same hue family as light. */
+  --cc-1: #22d3ee;
+  --cc-2: #818cf8;
+  --cc-3: #34d399;
+  --cc-4: #fb923c;
+  --cc-5: #f472b6;
+  --cc-6: #a78bfa;
+  --cc-7: #38bdf8;
+  --cc-8: #4ade80;
+  --cc-9: #facc15;
+  --cc-10: #f87171;
+  --cc-11: #e879f9;
+  --cc-12: #2dd4bf;
+  --cc-13: #60a5fa;
+  --cc-14: #fbbf24;
+  --cc-15: #a3e635;
 }
 
 html {
@@ -224,7 +264,7 @@ html.fx-circuit-static .net-pulses {
 }
 .net-base path {
   fill: none;
-  stroke: #2ec2ff;
+  stroke: var(--accent);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
   opacity: 0.1;
@@ -233,7 +273,7 @@ html.fx-circuit-static .net-pulses {
   opacity: 0.14;
 }
 .net-nodes circle {
-  fill: #2ec2ff;
+  fill: var(--accent);
   opacity: 0.16;
 }
 .dark .net-nodes circle {
@@ -260,12 +300,12 @@ html.fx-circuit-static .net-pulses {
   animation-fill-mode: backwards;
 }
 .net-pulse-glow {
-  stroke: #18a8f5;
+  stroke: var(--accent-strong);
   stroke-width: 5;
   opacity: 0.24;
 }
 .net-pulse-core {
-  stroke: #6cc6ff;
+  stroke: var(--accent-strong);
   stroke-width: 2.4;
   opacity: 0.95;
 }

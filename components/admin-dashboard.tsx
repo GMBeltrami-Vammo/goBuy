@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { STATUS_LABEL } from "@/lib/format";
+import { StatusBadge } from "@/components/status-badge";
+import type { RequestStatus } from "@/lib/types";
 
 type AppRole = "finance" | "fiscal" | "admin";
 
@@ -55,10 +56,12 @@ const ROLE_LABEL: Record<AppRole, string> = {
   fiscal: "Fiscal",
   admin: "Admin",
 };
+// Neutral, non-status chip styles — roles aren't a status, so they must not
+// borrow request-status colors (--approved, --awaiting-payment, etc.).
 const ROLE_CHIP: Record<AppRole, string> = {
-  finance: "bg-[var(--approved-soft)] text-[var(--approved)]",
+  finance: "border border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)]",
   fiscal: "bg-[var(--accent-soft)] text-[var(--accent)]",
-  admin: "bg-[var(--awaiting-payment-soft)] text-[var(--awaiting-payment)]",
+  admin: "border border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)]",
 };
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
@@ -87,13 +90,60 @@ function Th({ children }: { children?: React.ReactNode }) {
   );
 }
 
-function Empty({ label }: { label: string }) {
+function Empty({ label, cols }: { label: string; cols: number }) {
   return (
     <tr>
-      <td colSpan={10} className="px-4 py-10 text-center text-sm text-[var(--faint)]">
+      <td colSpan={cols} className="px-4 py-10 text-center text-sm text-[var(--faint)]">
         {label}
       </td>
     </tr>
+  );
+}
+
+const HEAD_CENTERS_LIMIT = 8;
+
+function HeadCentersCell({
+  centers,
+}: {
+  centers: { id: number; code: string; name: string }[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (centers.length === 0) {
+    return <span className="text-xs text-[var(--faint)]">—</span>;
+  }
+
+  const visible = expanded ? centers : centers.slice(0, HEAD_CENTERS_LIMIT);
+  const hiddenCount = centers.length - visible.length;
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {visible.map((cc) => (
+        <span
+          key={cc.id}
+          title={cc.name}
+          className="rounded bg-[var(--line)] px-1.5 py-0.5 font-mono text-xs"
+        >
+          {cc.code}
+        </span>
+      ))}
+      {hiddenCount > 0 && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="rounded px-1.5 py-0.5 text-xs font-semibold text-[var(--accent)] transition hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+        >
+          +{hiddenCount} mais
+        </button>
+      )}
+      {expanded && centers.length > HEAD_CENTERS_LIMIT && (
+        <button
+          onClick={() => setExpanded(false)}
+          className="rounded px-1.5 py-0.5 text-xs text-[var(--faint)] transition hover:text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+        >
+          Recolher
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -137,9 +187,10 @@ function Btn({
       disabled={disabled}
       onClick={onClick}
       className={
-        variant === "primary"
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] " +
+        (variant === "primary"
           ? "rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-40"
-          : "text-xs text-[var(--faint)] transition hover:text-[var(--rejected)] disabled:opacity-40"
+          : "rounded text-xs text-[var(--faint)] transition hover:text-[var(--rejected)] disabled:opacity-40")
       }
     >
       {children}
@@ -428,6 +479,7 @@ export function AdminDashboard() {
       {/* Toast */}
       {toast && (
         <div
+          role="status"
           className={`fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border px-4 py-3 text-sm font-medium shadow-[var(--shadow)] ${
             toast.ok
               ? "border-[var(--approved)] bg-[var(--approved-soft)] text-[var(--approved)]"
@@ -439,7 +491,7 @@ export function AdminDashboard() {
       )}
 
       {/* ── Section 1: Roles ─────────────────────────────────────────────────── */}
-      <section>
+      <section className="reveal reveal-1">
         <SectionTitle>Roles de usuários</SectionTitle>
         <Card>
           {/* Search */}
@@ -465,7 +517,7 @@ export function AdminDashboard() {
               </thead>
               <tbody>
                 {filteredUsers.length === 0 ? (
-                  <Empty label="Nenhum usuário encontrado." />
+                  <Empty label="Nenhum usuário encontrado." cols={3} />
                 ) : (
                   filteredUsers.map((u) => (
                     <tr
@@ -489,7 +541,8 @@ export function AdminDashboard() {
                                 <button
                                   onClick={() => void removeRole(u.email, role)}
                                   title={`Remover ${ROLE_LABEL[role]}`}
-                                  className="opacity-50 transition hover:opacity-100"
+                                  aria-label={`Remover ${ROLE_LABEL[role]}`}
+                                  className="opacity-50 transition hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                                 >
                                   ×
                                 </button>
@@ -499,21 +552,7 @@ export function AdminDashboard() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {u.headCenters.length === 0 ? (
-                            <span className="text-xs text-[var(--faint)]">—</span>
-                          ) : (
-                            u.headCenters.map((cc) => (
-                              <span
-                                key={cc.id}
-                                title={cc.name}
-                                className="rounded bg-[var(--line)] px-1.5 py-0.5 font-mono text-xs"
-                              >
-                                {cc.code}
-                              </span>
-                            ))
-                          )}
-                        </div>
+                        <HeadCentersCell centers={u.headCenters} />
                       </td>
                     </tr>
                   ))
@@ -551,7 +590,7 @@ export function AdminDashboard() {
       </section>
 
       {/* ── Section 2: Heads ─────────────────────────────────────────────────── */}
-      <section>
+      <section className="reveal reveal-2">
         <SectionTitle>Responsáveis por centro de custo</SectionTitle>
         <Card>
           {/* Search */}
@@ -578,7 +617,7 @@ export function AdminDashboard() {
               </thead>
               <tbody>
                 {filteredHeads.length === 0 ? (
-                  <Empty label="Nenhum responsável cadastrado." />
+                  <Empty label="Nenhum responsável cadastrado." cols={4} />
                 ) : (
                   filteredHeads.map((h) => {
                     const cc = costCenters.find((c) => c.id === h.cost_center_id);
@@ -655,7 +694,7 @@ export function AdminDashboard() {
       </section>
 
       {/* ── Section 3: Import ────────────────────────────────────────────────── */}
-      <section>
+      <section className="reveal reveal-3">
         <SectionTitle>Importar centros de custo</SectionTitle>
         <p className="mb-4 text-sm text-[var(--muted)]">
           Envie uma planilha <strong>.xlsx</strong> com as colunas:{" "}
@@ -792,7 +831,7 @@ export function AdminDashboard() {
       </section>
 
       {/* ── Section 4: Test data cleanup ─────────────────────────────────── */}
-      <section>
+      <section className="reveal reveal-4">
         <SectionTitle>Dados de teste — solicitações</SectionTitle>
         <p className="mb-4 text-sm text-[var(--muted)]">
           Exclui permanentemente uma solicitação e todos os seus documentos, eventos e itens.
@@ -831,14 +870,14 @@ export function AdminDashboard() {
                 </thead>
                 <tbody>
                   {requests.length === 0 ? (
-                    <Empty label="Nenhuma solicitação encontrada." />
+                    <Empty label="Nenhuma solicitação encontrada." cols={8} />
                   ) : (
                     requests.map((r) => (
                       <tr
                         key={r.id}
                         className="border-b border-[var(--line)] last:border-0"
                       >
-                        <td className="px-4 py-2.5 font-mono text-xs font-semibold text-[var(--accent)]">
+                        <td className="v-tabular px-4 py-2.5 font-mono text-xs font-semibold text-[var(--accent)]">
                           {r.display_id}
                         </td>
                         <td className="px-4 py-2.5 font-mono text-xs">{r.requester_email}</td>
@@ -852,14 +891,16 @@ export function AdminDashboard() {
                             "—"
                           )}
                         </td>
-                        <td className="px-4 py-2.5 text-xs">{STATUS_LABEL[r.status] ?? r.status}</td>
-                        <td className="px-4 py-2.5 font-mono text-xs">
+                        <td className="px-4 py-2.5 text-xs">
+                          <StatusBadge status={r.status as RequestStatus} />
+                        </td>
+                        <td className="v-tabular px-4 py-2.5 font-mono text-xs">
                           {new Intl.NumberFormat("pt-BR", {
                             style: "currency",
                             currency: r.currency ?? "BRL",
                           }).format(r.total_amount)}
                         </td>
-                        <td className="px-4 py-2.5 text-xs text-[var(--muted)]">
+                        <td className="v-tabular px-4 py-2.5 text-xs text-[var(--muted)]">
                           {new Date(r.created_at).toLocaleDateString("pt-BR")}
                         </td>
                         <td className="px-4 py-2.5 text-right">

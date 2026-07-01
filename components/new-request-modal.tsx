@@ -651,7 +651,7 @@ export function NewRequestModal({
           {/* Advance */}
           {type === "advance" && (
             <div className="space-y-4">
-              <p className="rounded-lg border border-[var(--pending)] bg-[var(--pending-soft)] px-4 py-2.5 text-xs text-[var(--pending)]">
+              <p className="rounded-lg border border-[var(--pending)] bg-[var(--pending-soft)] px-4 py-2.5 text-xs text-[var(--pending-text-strong)]">
                 Adiantamentos exigem prestação de contas. Valores acima de R$ 5.000 passam por
                 validação adicional do Financeiro.
               </p>
