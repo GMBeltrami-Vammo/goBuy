@@ -16,6 +16,7 @@ export default async function CobrancasPage() {
       email={ctx.email}
       supabaseToken={ctx.supabaseToken}
       centerIds={ctx.headCenterIds}
+      canResync={ctx.isFullAppAdmin}
     />
   );
 }
