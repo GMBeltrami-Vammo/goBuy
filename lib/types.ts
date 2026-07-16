@@ -155,6 +155,7 @@ export interface IncomingCharge {
   payment_method: string | null;
   pix_key: string | null;
   amount: number;
+  currency: string;
   observation: string | null;
   sheet_name: string | null;
   sheet_row: number | null;

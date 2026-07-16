@@ -32,6 +32,24 @@ function ccCode(input: string): string {
   return input.split(":")[0].trim();
 }
 
+/**
+ * Normalize the sender's currency to an ISO code. Accepts codes, symbols, and
+ * labels like "RMB (Renminbi)" or "R$ (REAL)" (takes the token before "(").
+ * Defaults to BRL when missing/unrecognized.
+ */
+function normalizeCurrency(raw: unknown): string {
+  const s = String(raw ?? "").split("(")[0].trim().toUpperCase();
+  if (!s) return "BRL";
+  const map: Record<string, string> = {
+    "R$": "BRL", REAL: "BRL", REAIS: "BRL", BRL: "BRL",
+    RMB: "CNY", RENMINBI: "CNY", YUAN: "CNY", CNY: "CNY",
+    "US$": "USD", USD: "USD", DOLAR: "USD", "DÓLAR": "USD", DOLLAR: "USD",
+    MXN: "MXN", COP: "COP",
+  };
+  if (map[s]) return map[s];
+  return /^[A-Z]{2,10}$/.test(s) ? s : "BRL";
+}
+
 interface ChargePayload {
   supplier_name?: string;
   nf_number?: string;
@@ -44,6 +62,8 @@ interface ChargePayload {
   boleto_url?: string;
   pix_key?: string;
   amount?: string | number;
+  currency?: string;
+  moeda?: string;
   observation?: string;
   sheet?: string;
   row?: number | string;
@@ -125,6 +145,7 @@ export async function POST(request: Request) {
         payment_method: str(body.payment_method),
         pix_key: str(body.pix_key),
         amount,
+        currency: normalizeCurrency(body.currency ?? body.moeda),
         observation: str(body.observation),
         sheet_name: str(body.sheet),
         sheet_row,

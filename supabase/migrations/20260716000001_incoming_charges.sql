@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS finance.incoming_charges (
   payment_method    text,
   pix_key           text,
   amount            numeric(14,2) NOT NULL CHECK (amount >= 0),
+  currency          text NOT NULL DEFAULT 'BRL',            -- ISO code (BRL, USD, CNY, MXN, COP…)
   observation       text,
   sheet_name        text,                                   -- Google-Sheets write-back tab
   sheet_row         integer,                                -- Google-Sheets write-back row

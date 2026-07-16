@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Pagination, usePagination } from "@/components/pagination";
 import { formatBRL, formatDateOnlyBR } from "@/lib/format";
+import { formatAmount } from "@/lib/payment";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { CostCenter, CostCenterBudget, IncomingCharge } from "@/lib/types";
 
@@ -44,6 +45,17 @@ function ChargeStatusBadge({ status }: { status: IncomingCharge["status"] }) {
       {CHARGE_STATUS_LABEL[status]}
     </span>
   );
+}
+
+// A charge amount in its own currency: BRL via the pt-BR real formatter, others
+// via Intl (falls back to "<CODE> <n>" if Intl rejects an unusual code).
+function fmtMoney(n: number, currency: string): string {
+  if (!currency || currency === "BRL") return formatBRL(n);
+  try {
+    return formatAmount(n, currency);
+  } catch {
+    return `${currency} ${n.toFixed(2)}`;
+  }
 }
 
 export function ChargesDashboard({
@@ -108,6 +120,7 @@ export function ChargesDashboard({
     const map = new Map<number, number>();
     for (const c of charges ?? []) {
       if (!COMMITTED_STATUSES.has(c.status) || !c.due_date) continue;
+      if ((c.currency ?? "BRL") !== "BRL") continue; // budgets are in BRL — no FX
       if (ym(c.due_date) !== ym(selectedMonth)) continue;
       map.set(c.cost_center_id, (map.get(c.cost_center_id) ?? 0) + Number(c.amount));
     }
@@ -118,11 +131,26 @@ export function ChargesDashboard({
     const map = new Map<number, number>();
     for (const c of charges ?? []) {
       if (c.status !== "pending" || !c.due_date) continue;
+      if ((c.currency ?? "BRL") !== "BRL") continue; // budgets are in BRL — no FX
       if (ym(c.due_date) !== ym(selectedMonth)) continue;
       map.set(c.cost_center_id, (map.get(c.cost_center_id) ?? 0) + Number(c.amount));
     }
     return map;
   }, [charges, selectedMonth]);
+
+  // Approved/pending charges this month in a non-BRL currency — shown in the
+  // queue but not summed into the BRL budget (we have no FX rates).
+  const foreignThisMonth = useMemo(
+    () =>
+      (charges ?? []).filter(
+        (c) =>
+          COMMITTED_STATUSES.has(c.status) &&
+          !!c.due_date &&
+          ym(c.due_date) === ym(selectedMonth) &&
+          (c.currency ?? "BRL") !== "BRL",
+      ).length,
+    [charges, selectedMonth],
+  );
 
   const budgetByCenter = useMemo(() => {
     const map = new Map<number, number>();
@@ -296,6 +324,11 @@ export function ChargesDashboard({
                 * sem orçamento cadastrado para estes centros de custo
               </p>
             )}
+            {foreignThisMonth > 0 && (
+              <p className="mt-1 v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">
+                {foreignThisMonth} cobrança(s) em outras moedas neste mês — não somadas ao budget (sem conversão)
+              </p>
+            )}
           </div>
 
           {relevantCenters.length > 0 && (
@@ -421,7 +454,7 @@ export function ChargesDashboard({
                       <td className="px-2 py-3.5 text-right v-tabular text-xs text-[var(--muted)]">
                         {c.due_date ? formatDateOnlyBR(c.due_date) : "—"}
                       </td>
-                      <td className="px-2 py-3.5 text-right v-tabular text-sm font-bold">{formatBRL(Number(c.amount))}</td>
+                      <td className="px-2 py-3.5 text-right v-tabular text-sm font-bold">{fmtMoney(Number(c.amount), c.currency)}</td>
                       <td className="px-5 py-3.5">
                         <div className="flex justify-end gap-2">
                           <button
@@ -478,7 +511,7 @@ export function ChargesDashboard({
                       </div>
                     </td>
                     <td className="hidden px-2 py-3 text-right v-tabular text-xs text-[var(--muted)] sm:table-cell">
-                      {formatBRL(Number(c.amount))}
+                      {fmtMoney(Number(c.amount), c.currency)}
                     </td>
                     <td className="px-5 py-3 text-right"><ChargeStatusBadge status={c.status} /></td>
                   </tr>
@@ -500,7 +533,7 @@ export function ChargesDashboard({
       {denyTarget && (
         <ConfirmDialog
           title={`Recusar ${denyTarget.display_id}?`}
-          message={`${denyTarget.supplier_name} — ${formatBRL(Number(denyTarget.amount))}. Informe o motivo da recusa.`}
+          message={`${denyTarget.supplier_name} — ${fmtMoney(Number(denyTarget.amount), denyTarget.currency)}. Informe o motivo da recusa.`}
           confirmLabel="Recusar cobrança"
           tone="danger"
           busy={busyId === denyTarget.id}
