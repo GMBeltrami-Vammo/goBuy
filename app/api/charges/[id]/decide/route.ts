@@ -14,7 +14,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // approval. Override via env if the script is redeployed to a new URL.
 const HEAD_APPROVAL_WEBHOOK_URL =
   process.env.HEAD_APPROVAL_WEBHOOK_URL ??
-  "https://script.google.com/a/macros/vammo.com/s/AKfycbzR6GltHoDmUOoDmJw3Y_DH6PP3vozwkXRk9zm3d1Ff1iVFoPj0yhTEVyG7g8tO4BVp/exec";
+  "https://script.google.com/macros/s/AKfycbzR6GltHoDmUOoDmJw3Y_DH6PP3vozwkXRk9zm3d1Ff1iVFoPj0yhTEVyG7g8tO4BVp/exec";
 
 export async function POST(
   request: Request,
@@ -90,13 +90,20 @@ export async function POST(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ row: charge.sheet_row, secret }),
         });
-        if (res.ok) {
+        // Apps Script always returns HTTP 200; the real outcome is in the JSON
+        // body (e.g. {status:"error", code:401} on a rejected/failed write).
+        // Only stamp sheet_written_at when the script actually reports success.
+        const result = (await res.json().catch(() => null)) as
+          | { status?: string; code?: number; error?: unknown }
+          | null;
+        const wrote = res.ok && !!result && result.status !== "error" && !result.error;
+        if (wrote) {
           await admin
             .from("incoming_charges")
             .update({ sheet_written_at: new Date().toISOString() })
             .eq("id", id);
         } else {
-          console.error("[charges/decide] sheet write-back HTTP", res.status);
+          console.error("[charges/decide] sheet write-back failed:", res.status, result);
         }
       } catch (err) {
         console.error("[charges/decide] sheet write-back failed:", err);
