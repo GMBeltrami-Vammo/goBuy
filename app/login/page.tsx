@@ -24,7 +24,7 @@ export default async function LoginPage({
             Vammo · Financeiro
           </p>
           <h1 className="mt-3 text-5xl font-bold tracking-tight">
-            <span className="text-[var(--accent)]">Lu</span>men
+            go<span className="text-[var(--accent)]">Buy</span>
           </h1>
           <p className="mt-3 text-sm text-[var(--muted)]">
             Solicitações de compra, aprovações e pagamentos — em um só lugar.
