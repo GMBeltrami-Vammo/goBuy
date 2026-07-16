@@ -135,5 +135,34 @@ export interface SessionContext {
   isHead: boolean;
   headCenterIds: number[];
   roles: AppRole[];
+  /** Email is in the FULL_APP_ADMINS allowlist → may see the full (non-demo) app. */
+  isFullAppAdmin: boolean;
   supabaseToken: string;
+}
+
+export interface IncomingCharge {
+  id: string;
+  display_id: string;
+  supplier_name: string;
+  nf_number: string | null;
+  description: string | null;
+  cost_center_id: number;
+  cost_center_input: string | null;
+  due_date: string | null;
+  attachment_url: string | null;
+  boleto_url: string | null;
+  email: string | null;
+  payment_method: string | null;
+  pix_key: string | null;
+  amount: number;
+  observation: string | null;
+  sheet_name: string | null;
+  sheet_row: number | null;
+  status: "pending" | "approved" | "denied";
+  created_at: string;
+  decided_at: string | null;
+  decided_by_email: string | null;
+  decision_reason: string | null;
+  sheet_written_at: string | null;
+  cost_centers?: Pick<CostCenter, "code" | "name" | "department">;
 }

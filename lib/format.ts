@@ -69,6 +69,32 @@ export const parseDMY = (s: string): string => {
  */
 export const isInvalidDMY = (s: string): boolean => s.length === 10 && parseDMY(s) === "";
 
+/**
+ * Parse a Brazilian-formatted money string into a number.
+ * Accepts "1234,56", "1.234,56", "1234.56", "1234", with an optional "R$"/spaces.
+ * Comma is the decimal separator; a dot is treated as a thousands separator when
+ * the digits are grouped (1.234.567), otherwise as a decimal point.
+ * Returns null when the input is not a valid number.
+ */
+export const parseBRLDecimal = (input: unknown): number | null => {
+  if (typeof input === "number") return Number.isFinite(input) ? input : null;
+  if (typeof input !== "string") return null;
+  let s = input.trim().replace(/^R\$\s*/i, "").replace(/\s+/g, "");
+  if (!s) return null;
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+  if (hasComma && hasDot) {
+    s = s.replace(/\./g, "").replace(",", "."); // dots = thousands, comma = decimal
+  } else if (hasComma) {
+    s = s.replace(",", ".");
+  } else if (hasDot && /^\d{1,3}(\.\d{3})+$/.test(s)) {
+    s = s.replace(/\./g, ""); // grouped dots = thousands (else keep as decimal point)
+  }
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+};
+
 export const STATUS_LABEL: Record<string, string> = {
   pending: "Pendente",
   approved: "Aprovada",

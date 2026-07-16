@@ -7,7 +7,9 @@ export const metadata = { title: "Admin — goBuy" };
 
 export default async function AdminPage() {
   const ctx = await getSessionContext();
-  if (!ctx || !ctx.roles.includes("admin")) redirect("/");
+  if (!ctx) redirect("/login");
+  if (!ctx.isFullAppAdmin) redirect("/cobrancas");
+  if (!ctx.roles.includes("admin")) redirect("/");
 
   return (
     <div>

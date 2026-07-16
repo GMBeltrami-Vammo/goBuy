@@ -10,6 +10,7 @@ export default async function ApprovalsPage({
 }) {
   const ctx = await getSessionContext();
   if (!ctx) redirect("/login");
+  if (!ctx.isFullAppAdmin) redirect("/cobrancas");
   if (!ctx.isHead) redirect("/");
 
   const { r } = await searchParams;

@@ -9,6 +9,13 @@ export const VAMMO_DOMAIN = "@vammo.com";
 export const isVammoEmail = (email: string | undefined | null): email is string =>
   !!email && email.toLowerCase().endsWith(VAMMO_DOMAIN);
 
+// Server-only allowlist of emails that may see the full (non-demo) app. Everyone
+// else who is a cost-center head sees only the /cobrancas approval demo.
+const FULL_APP_ADMINS = (process.env.FULL_APP_ADMINS ?? "")
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+
 /**
  * Resolves the signed-in user's capabilities (head centers + roles).
  * Returns null when there is no valid @vammo.com session.
@@ -41,6 +48,7 @@ export const getSessionContext = cache(async (): Promise<SessionContext | null> 
     isHead: headCenterIds.length > 0,
     headCenterIds,
     roles,
+    isFullAppAdmin: FULL_APP_ADMINS.includes(email),
     supabaseToken: session.supabaseToken ?? "",  // "" → unauthenticated Supabase client; RLS blocks all reads
   };
 });

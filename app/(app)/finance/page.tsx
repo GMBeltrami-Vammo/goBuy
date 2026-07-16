@@ -11,6 +11,7 @@ export default async function FinancePage({
   const { r } = await searchParams;
   const ctx = await getSessionContext();
   if (!ctx) redirect("/login");
+  if (!ctx.isFullAppAdmin) redirect("/cobrancas");
 
   const canFinance = ctx.roles.includes("finance") || ctx.roles.includes("admin");
   const canFiscal = ctx.roles.includes("fiscal");

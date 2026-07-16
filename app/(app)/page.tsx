@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { NoAccess } from "@/components/no-access";
 import { RequestsDashboard } from "@/components/requests-dashboard";
 import { getSessionContext } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -11,6 +12,13 @@ export default async function HomePage({
 }) {
   const ctx = await getSessionContext();
   if (!ctx) redirect("/login");
+
+  // Non-admins never see the full app. Heads go to the demo; everyone else
+  // (no head centers, not an admin) gets a friendly no-access screen.
+  if (!ctx.isFullAppAdmin) {
+    if (ctx.isHead) redirect("/cobrancas");
+    return <NoAccess firstName={ctx.fullName.split(" ")[0]} />;
+  }
 
   const { r } = await searchParams;
 

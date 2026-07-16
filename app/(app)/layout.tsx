@@ -77,7 +77,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       </header>
 
-      <NavTabs isHead={ctx.isHead} canFinance={canFinance} canFiscal={canFiscal} isAdmin={isAdmin} />
+      <NavTabs
+        isHead={ctx.isHead}
+        canFinance={canFinance}
+        canFiscal={canFiscal}
+        isAdmin={isAdmin}
+        isFullAppAdmin={ctx.isFullAppAdmin}
+      />
 
       <main className="flex-1 pb-20 pt-8">{children}</main>
 
