@@ -1,4 +1,4 @@
-# Lumen — Plataforma de Compras Vammo
+# goBuy — Plataforma de Compras Vammo
 
 Solicitações de compra, aprovações por head de centro de custo, documentos fiscais e
 execução de pagamentos — substituindo o fluxo manual de todas as áreas.

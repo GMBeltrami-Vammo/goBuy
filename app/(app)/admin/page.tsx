@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { AdminDashboard } from "@/components/admin-dashboard";
 import { getSessionContext } from "@/lib/auth";
 
-export const metadata = { title: "Admin — Lumen" };
+export const metadata = { title: "Admin — goBuy" };
 
 export default async function AdminPage() {
   const ctx = await getSessionContext();
@@ -14,7 +14,7 @@ export default async function AdminPage() {
       <div className="mb-8">
         <h1 className="text-2xl font-bold tracking-tight text-[var(--ink)]">Administração</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Gerencie acessos, roles e centros de custo do Lumen.
+          Gerencie acessos, roles e centros de custo do goBuy.
         </p>
       </div>
       <AdminDashboard />

@@ -19,7 +19,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <header className="flex items-center justify-between gap-4 pb-2 pt-6">
         <div className="flex items-baseline gap-3">
           <span className="text-xl font-bold tracking-tight">
-            <span className="text-[var(--accent)]">Lu</span>men
+            go<span className="text-[var(--accent)]">Buy</span>
           </span>
           <span className="hidden v-tabular text-[10px] uppercase tracking-[0.3em] text-[var(--faint)] sm:block">
             Vammo · Compras
@@ -82,7 +82,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <main className="flex-1 pb-20 pt-8">{children}</main>
 
       <footer className="border-t border-[var(--line)] py-5 text-center v-tabular text-[10px] uppercase tracking-[0.25em] text-[var(--faint)]">
-        Lumen — plataforma de compras Vammo
+        goBuy — plataforma de compras Vammo
       </footer>
     </div>
   );

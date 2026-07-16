@@ -158,7 +158,7 @@ export function FinanceDashboard({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "lumen-pagamentos.xlsx";
+      a.download = "gobuy-pagamentos.xlsx";
       a.click();
       URL.revokeObjectURL(url);
     } finally {
@@ -200,7 +200,7 @@ export function FinanceDashboard({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "lumen-solicitacoes.csv";
+    a.download = "gobuy-solicitacoes.csv";
     a.click();
     URL.revokeObjectURL(url);
   };

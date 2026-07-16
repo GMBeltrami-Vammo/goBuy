@@ -187,7 +187,7 @@ export async function GET(request: Request) {
   });
 
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Lumen";
+  workbook.creator = "goBuy";
 
   for (const key of orderedKeys) {
     const sheet = workbook.addWorksheet(key);
@@ -209,7 +209,7 @@ export async function GET(request: Request) {
         departmentColumn(row),
         null, // Classe
         null, // Comentários
-        "Lançamento - Lumen",
+        "Lançamento - goBuy",
         nfLink,
         row.requester_email,
         boletoLink,          // N
@@ -235,7 +235,7 @@ export async function GET(request: Request) {
     status: 200,
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="lumen-pagamentos-${today}.xlsx"`,
+      "Content-Disposition": `attachment; filename="gobuy-pagamentos-${today}.xlsx"`,
       "Cache-Control": "no-store",
     },
   });

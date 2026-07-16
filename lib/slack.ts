@@ -315,7 +315,7 @@ export async function notifyFinancePending(req: FinancePendingNotification): Pro
       elements: [
         {
           type: "button",
-          text: { type: "plain_text", text: "🔗  Validar no Lumen", emoji: true },
+          text: { type: "plain_text", text: "🔗  Validar no goBuy", emoji: true },
           url: `${APP_URL}/finance?r=${encodeURIComponent(req.displayId)}`,
           action_id: "view_details_finance",
         },

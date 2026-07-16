@@ -57,7 +57,7 @@ export default async function LoginPage({
         </div>
 
         <p className="reveal reveal-3 mt-8 text-center v-tabular text-[11px] text-[var(--faint)]">
-          Lumen v1 — plataforma interna de compras
+          goBuy v1 — plataforma interna de compras
         </p>
       </div>
     </main>

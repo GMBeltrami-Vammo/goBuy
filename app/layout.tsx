@@ -13,7 +13,7 @@ const sans = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Lumen — Compras Vammo",
+  title: "goBuy — Compras Vammo",
   description: "Solicitações de compra, aprovações e pagamentos da Vammo.",
 };
 

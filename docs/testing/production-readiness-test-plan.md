@@ -1,4 +1,4 @@
-# goBuy ("Lumen") — Production Readiness Test Plan
+# goBuy — Production Readiness Test Plan
 
 Generated 2026-07-01.
 Scope: every feature in the current codebase, grounded in the actual RPC/RLS/schema logic on Supabase project `jfdqlnpidynxwqqiblcd` (schema `finance`), not assumptions.
@@ -14,7 +14,7 @@ Section 9 addresses the 100/hour volume question directly.
 
 ## 2. System overview
 
-goBuy ("Lumen") is Vammo's internal purchase-request → approval → payment platform.
+goBuy is Vammo's internal purchase-request → approval → payment platform.
 A requester creates a request (products, a service contract, or a cash advance), one or more cost-center heads approve it, the requester or Finance attaches payment details, Finance validates and pays it.
 Every write to financial data goes through a Postgres `SECURITY DEFINER` RPC that re-checks authorization itself — the Next.js API routes are thin wrappers, not the authority.
 This matters for testing: a bug in the RPC is a real bug even if the UI hides the button, and a bug in the UI that merely hides a button is not a security bug as long as the RPC still blocks it.
