@@ -11,5 +11,11 @@ export default async function CobrancasPage() {
   // Heads and full-app admins may see the demo; nobody else.
   if (!ctx.isHead && !ctx.isFullAppAdmin) redirect("/");
 
-  return <ChargesDashboard email={ctx.email} supabaseToken={ctx.supabaseToken} />;
+  return (
+    <ChargesDashboard
+      email={ctx.email}
+      supabaseToken={ctx.supabaseToken}
+      centerIds={ctx.headCenterIds}
+    />
+  );
 }

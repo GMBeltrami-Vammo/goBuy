@@ -1,19 +1,33 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Pagination, usePagination } from "@/components/pagination";
 import { formatBRL, formatDateOnlyBR } from "@/lib/format";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import type { IncomingCharge } from "@/lib/types";
+import type { CostCenter, CostCenterBudget, IncomingCharge } from "@/lib/types";
+
+// recharts is heavy — load the budget visuals only when this dashboard renders.
+const BudgetDonut = dynamic(
+  () => import("@/components/budget-donut").then((m) => m.BudgetDonut),
+  { ssr: false, loading: () => <div className="h-36 w-36 animate-pulse rounded-full bg-[var(--surface-2)]" /> },
+);
+const HeadAggregateChart = dynamic(
+  () => import("@/components/head-aggregate-chart").then((m) => m.HeadAggregateChart),
+  { ssr: false, loading: () => <div className="h-48 animate-pulse rounded-xl bg-[var(--surface-2)]" /> },
+);
+
+// A charge consumes budget while approved OR pending (pending = "at risk",
+// firms up on approval). Denied never consumes.
+const COMMITTED_STATUSES = new Set<IncomingCharge["status"]>(["approved", "pending"]);
 
 const CHARGE_STATUS_LABEL: Record<IncomingCharge["status"], string> = {
   pending: "Pendente",
   approved: "Aprovada",
   denied: "Recusada",
 };
-// Charge statuses map onto the shared status tokens (denied → rejected).
 const CHARGE_STATUS_TONE: Record<IncomingCharge["status"], string> = {
   pending: "pending",
   approved: "approved",
@@ -35,41 +49,138 @@ function ChargeStatusBadge({ status }: { status: IncomingCharge["status"] }) {
 export function ChargesDashboard({
   email,
   supabaseToken,
+  centerIds,
 }: {
   email: string;
   supabaseToken: string;
+  centerIds: number[];
 }) {
   const [charges, setCharges] = useState<IncomingCharge[] | null>(null);
+  const [centers, setCenters] = useState<CostCenter[]>([]);
+  const [budgets, setBudgets] = useState<CostCenterBudget[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [denyTarget, setDenyTarget] = useState<IncomingCharge | null>(null);
   const [denyReason, setDenyReason] = useState("");
+  const [viewMode, setViewMode] = useState<"pizza" | "barra">("pizza");
+  const [focusCc, setFocusCc] = useState<number | null>(null);
   const busyRef = useRef(false);
 
+  const monthStart = useMemo(() => {
+    const d = new Date();
+    return new Date(Date.UTC(d.getFullYear(), d.getMonth(), 1)).toISOString().slice(0, 10);
+  }, []);
+  const [selectedMonth, setSelectedMonth] = useState(monthStart);
+
+  const hasCenters = centerIds.length > 0;
+
   const load = useCallback(async () => {
-    const { data } = await supabaseBrowser(supabaseToken)
-      .from("incoming_charges")
-      .select("*, cost_centers(code, name, department)")
-      .order("due_date", { ascending: true })
-      .limit(500);
-    setCharges((data as unknown as IncomingCharge[]) ?? []);
-  }, [supabaseToken]);
+    const supabase = supabaseBrowser(supabaseToken);
+    const [chargeRes, ccRes, budgetRes] = await Promise.all([
+      supabase
+        .from("incoming_charges")
+        .select("*, cost_centers(code, name, department)")
+        .order("due_date", { ascending: true })
+        .limit(500),
+      hasCenters
+        ? supabase.from("cost_centers").select("id, code, name, department, active").in("id", centerIds)
+        : Promise.resolve({ data: [] }),
+      hasCenters
+        ? supabase
+            .from("cost_center_budgets")
+            .select("id, cost_center_id, period_month, amount, source")
+            .in("cost_center_id", centerIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+    setCharges((chargeRes.data as unknown as IncomingCharge[]) ?? []);
+    setCenters((ccRes.data as unknown as CostCenter[]) ?? []);
+    setBudgets((budgetRes.data as unknown as CostCenterBudget[]) ?? []);
+  }, [supabaseToken, centerIds, hasCenters]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const pending = useMemo(
-    () => (charges ?? []).filter((c) => c.status === "pending"),
-    [charges],
-  );
-  const decided = useMemo(
-    () => (charges ?? []).filter((c) => c.status !== "pending"),
-    [charges],
+  // ─── Budget aggregation (committed = approved + pending, bucketed by due date) ──
+  const ym = (d: string) => d.slice(0, 7); // "yyyy-mm"
+
+  const committedByCenter = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const c of charges ?? []) {
+      if (!COMMITTED_STATUSES.has(c.status) || !c.due_date) continue;
+      if (ym(c.due_date) !== ym(selectedMonth)) continue;
+      map.set(c.cost_center_id, (map.get(c.cost_center_id) ?? 0) + Number(c.amount));
+    }
+    return map;
+  }, [charges, selectedMonth]);
+
+  const pendingAmountByCenter = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const c of charges ?? []) {
+      if (c.status !== "pending" || !c.due_date) continue;
+      if (ym(c.due_date) !== ym(selectedMonth)) continue;
+      map.set(c.cost_center_id, (map.get(c.cost_center_id) ?? 0) + Number(c.amount));
+    }
+    return map;
+  }, [charges, selectedMonth]);
+
+  const budgetByCenter = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const b of budgets) {
+      if (b.period_month.slice(0, 10) === selectedMonth) map.set(b.cost_center_id, Number(b.amount));
+    }
+    return map;
+  }, [budgets, selectedMonth]);
+
+  const totals = useMemo(() => {
+    const budget = centers.reduce((a, c) => a + (budgetByCenter.get(c.id) ?? 0), 0);
+    const committed = centers.reduce((a, c) => a + (committedByCenter.get(c.id) ?? 0), 0);
+    const pending = centers.reduce((a, c) => a + (pendingAmountByCenter.get(c.id) ?? 0), 0);
+    return { budget, committed, pending, available: Math.max(0, budget - committed) };
+  }, [centers, budgetByCenter, committedByCenter, pendingAmountByCenter]);
+
+  // Only show CCs that have a budget or activity this month (keeps the view
+  // focused — a head of many CCs isn't flooded with empty cards).
+  const relevantCenters = useMemo(
+    () => centers.filter((c) => (budgetByCenter.get(c.id) ?? 0) > 0 || (committedByCenter.get(c.id) ?? 0) > 0),
+    [centers, budgetByCenter, committedByCenter],
   );
 
-  const pendingPager = usePagination(pending, "pending");
-  const decidedPager = usePagination(decided, "decided");
+  const aggregateData = useMemo(
+    () =>
+      relevantCenters.map((cc) => ({
+        cc,
+        committed: committedByCenter.get(cc.id) ?? 0,
+        budget: budgetByCenter.get(cc.id) ?? 0,
+      })),
+    [relevantCenters, committedByCenter, budgetByCenter],
+  );
+
+  const availableMonths = useMemo(() => {
+    const set = new Set<string>(budgets.map((b) => b.period_month.slice(0, 10)));
+    for (const c of charges ?? []) if (c.due_date) set.add(`${ym(c.due_date)}-01`);
+    set.add(monthStart);
+    return [...set].sort((a, b) => b.localeCompare(a));
+  }, [budgets, charges, monthStart]);
+
+  const monthName = (iso: string) =>
+    new Date(`${iso}T12:00:00`).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  const isMockOrEmpty = hasCenters && budgets.length === 0;
+
+  // ─── Charge queues (respecting the CC drill-down filter) ──────────────────────
+  const inFocus = (c: IncomingCharge) => focusCc === null || c.cost_center_id === focusCc;
+  const pending = useMemo(
+    () => (charges ?? []).filter((c) => c.status === "pending" && inFocus(c)),
+    [charges, focusCc],
+  );
+  const decided = useMemo(
+    () => (charges ?? []).filter((c) => c.status !== "pending" && inFocus(c)),
+    [charges, focusCc],
+  );
+
+  const pendingPager = usePagination(pending, `pending|${focusCc}`);
+  const decidedPager = usePagination(decided, `decided|${focusCc}`);
+  const focusLabel = focusCc !== null ? centers.find((c) => c.id === focusCc)?.code ?? null : null;
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -96,8 +207,7 @@ export function ChargesDashboard({
   };
 
   const confirmDeny = async () => {
-    if (!denyTarget || busyRef.current) return;
-    if (!denyReason.trim()) return;
+    if (!denyTarget || busyRef.current || !denyReason.trim()) return;
     busyRef.current = true;
     setBusyId(denyTarget.id);
     const { error } = await supabaseBrowser(supabaseToken).rpc("decide_incoming_charge", {
@@ -144,12 +254,125 @@ export function ChargesDashboard({
         </p>
       )}
 
+      {/* ─── Budget overview (approved + pending charges vs budget, by due date) ─── */}
+      {hasCenters && (
+        <>
+          <div className="reveal reveal-2 mt-7">
+            <div className="mb-3 flex items-center gap-2">
+              <label htmlFor="charges-month" className="text-xs font-medium text-[var(--muted)]">
+                Mês de referência
+              </label>
+              <select
+                id="charges-month"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="rounded-lg border border-[var(--line-strong)] bg-[var(--bg)] px-3 py-1.5 text-sm font-medium capitalize text-[var(--ink)] outline-none transition focus:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              >
+                {availableMonths.map((m) => (
+                  <option key={m} value={m}>{monthName(m)}</option>
+                ))}
+              </select>
+              {selectedMonth !== monthStart && (
+                <button
+                  onClick={() => setSelectedMonth(monthStart)}
+                  className="text-xs font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                >
+                  Voltar ao mês atual
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <Stat label="Budget do mês" value={loading ? null : formatBRL(totals.budget)} />
+              <Stat
+                label="Comprometido"
+                value={loading ? null : formatBRL(totals.committed)}
+                tone="pending"
+                sub={totals.pending > 0 ? `${formatBRL(totals.pending)} pendente` : undefined}
+              />
+              <Stat label="Disponível" value={loading ? null : formatBRL(totals.available)} tone="approved" />
+            </div>
+            {isMockOrEmpty && (
+              <p className="mt-2 v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">
+                * sem orçamento cadastrado para estes centros de custo
+              </p>
+            )}
+          </div>
+
+          {relevantCenters.length > 0 && (
+            <div className="reveal reveal-3 mt-6 space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">
+                  Por centro de custo — {monthName(selectedMonth)}
+                </p>
+                <div
+                  role="group"
+                  aria-label="Alternar entre pizza ou barras"
+                  className="flex items-center gap-0.5 rounded-lg border border-[var(--line)] p-0.5"
+                >
+                  {(["pizza", "barra"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => setViewMode(mode)}
+                      aria-pressed={viewMode === mode}
+                      className={`rounded-md px-3 py-1 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
+                        viewMode === mode
+                          ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                          : "text-[var(--muted)] hover:text-[var(--ink)]"
+                      }`}
+                    >
+                      {mode === "pizza" ? "Pizzas" : "Barras"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <HeadAggregateChart data={aggregateData} viewMode={viewMode} onOpenCenter={(cc) => setFocusCc(cc.id)} />
+
+              {viewMode === "pizza" && (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {relevantCenters.map((cc) => {
+                    const budget = budgetByCenter.get(cc.id) ?? 0;
+                    const consumed = committedByCenter.get(cc.id) ?? 0;
+                    return (
+                      <button
+                        key={cc.id}
+                        onClick={() => setFocusCc(cc.id)}
+                        className="flex items-center gap-4 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-left shadow-[var(--shadow)] transition hover:border-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                        title="Filtrar cobranças deste centro de custo"
+                      >
+                        <BudgetDonut consumed={consumed} budget={budget} />
+                        <div className="min-w-0 flex-1">
+                          <p className="v-tabular text-[10px] uppercase tracking-widest text-[var(--faint)]">{cc.code}</p>
+                          <p className="mt-0.5 truncate text-sm font-semibold" title={cc.name}>{cc.name}</p>
+                          <p className="mt-2 v-tabular text-xs text-[var(--muted)]">
+                            <span className="text-[var(--ink)]">{formatBRL(consumed)}</span>
+                            {budget > 0 && <> / {formatBRL(budget)}</>}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
       {/* Pending queue */}
-      <div className="reveal reveal-2 mt-7 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
-        <div className="border-b border-[var(--line)] px-5 py-3.5">
+      <div className="reveal reveal-4 mt-8 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-5 py-3.5">
           <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
             Aguardando sua decisão
           </h2>
+          {focusLabel && (
+            <button
+              onClick={() => setFocusCc(null)}
+              className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-semibold text-[var(--accent)] transition hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
+              Filtrando: {focusLabel} ✕
+            </button>
+          )}
         </div>
 
         {loading ? (
@@ -160,7 +383,7 @@ export function ChargesDashboard({
           </div>
         ) : pending.length === 0 ? (
           <p className="px-5 py-12 text-center text-sm text-[var(--faint)]">
-            Nenhuma cobrança pendente por aqui.
+            Nenhuma cobrança pendente {focusLabel ? "para este centro de custo" : "por aqui"}.
           </p>
         ) : (
           <>
@@ -179,18 +402,12 @@ export function ChargesDashboard({
                 <tbody>
                   {pendingPager.pageItems.map((c) => (
                     <tr key={c.id} className="border-b border-[var(--line)] last:border-b-0 align-top">
-                      <td className="px-5 py-3.5 v-tabular text-xs font-semibold text-[var(--accent)]">
-                        {c.display_id}
-                      </td>
+                      <td className="px-5 py-3.5 v-tabular text-xs font-semibold text-[var(--accent)]">{c.display_id}</td>
                       <td className="px-2 py-3.5">
                         <div className="text-sm font-medium">{c.supplier_name}</div>
-                        {c.nf_number && (
-                          <div className="text-xs text-[var(--muted)]">NF {c.nf_number}</div>
-                        )}
+                        {c.nf_number && <div className="text-xs text-[var(--muted)]">NF {c.nf_number}</div>}
                         {c.description && (
-                          <div className="max-w-[28ch] truncate text-xs text-[var(--muted)]" title={c.description}>
-                            {c.description}
-                          </div>
+                          <div className="max-w-[28ch] truncate text-xs text-[var(--muted)]" title={c.description}>{c.description}</div>
                         )}
                         <ChargeLinks charge={c} />
                       </td>
@@ -199,16 +416,12 @@ export function ChargesDashboard({
                         <div className="text-[11px] text-[var(--faint)]">
                           {c.cost_centers ? `${c.cost_centers.code} — ${c.cost_centers.name}` : c.cost_center_id}
                         </div>
-                        {c.pix_key && (
-                          <div className="mt-0.5 text-[11px] text-[var(--muted)]">Pix: {c.pix_key}</div>
-                        )}
+                        {c.pix_key && <div className="mt-0.5 text-[11px] text-[var(--muted)]">Pix: {c.pix_key}</div>}
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-xs text-[var(--muted)]">
                         {c.due_date ? formatDateOnlyBR(c.due_date) : "—"}
                       </td>
-                      <td className="px-2 py-3.5 text-right v-tabular text-sm font-bold">
-                        {formatBRL(Number(c.amount))}
-                      </td>
+                      <td className="px-2 py-3.5 text-right v-tabular text-sm font-bold">{formatBRL(Number(c.amount))}</td>
                       <td className="px-5 py-3.5">
                         <div className="flex justify-end gap-2">
                           <button
@@ -257,9 +470,7 @@ export function ChargesDashboard({
               <tbody>
                 {decidedPager.pageItems.map((c) => (
                   <tr key={c.id} className="border-b border-[var(--line)] last:border-b-0">
-                    <td className="w-[80px] px-5 py-3 v-tabular text-xs font-semibold text-[var(--accent)]">
-                      {c.display_id}
-                    </td>
+                    <td className="w-[80px] px-5 py-3 v-tabular text-xs font-semibold text-[var(--accent)]">{c.display_id}</td>
                     <td className="px-2 py-3">
                       <div className="text-sm">{c.supplier_name}</div>
                       <div className="text-[11px] text-[var(--faint)]">
@@ -269,9 +480,7 @@ export function ChargesDashboard({
                     <td className="hidden px-2 py-3 text-right v-tabular text-xs text-[var(--muted)] sm:table-cell">
                       {formatBRL(Number(c.amount))}
                     </td>
-                    <td className="px-5 py-3 text-right">
-                      <ChargeStatusBadge status={c.status} />
-                    </td>
+                    <td className="px-5 py-3 text-right"><ChargeStatusBadge status={c.status} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -317,22 +526,12 @@ function ChargeLinks({ charge }: { charge: IncomingCharge }) {
   return (
     <div className="mt-1 flex gap-3">
       {charge.attachment_url && (
-        <a
-          href={charge.attachment_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-        >
+        <a href={charge.attachment_url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
           NF / recibo ↗
         </a>
       )}
       {charge.boleto_url && (
-        <a
-          href={charge.boleto_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-        >
+        <a href={charge.boleto_url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
           Boleto ↗
         </a>
       )}
@@ -348,6 +547,36 @@ function SkeletonRow() {
         <div className="h-3.5 flex-1 animate-pulse rounded bg-[var(--surface-2)]" />
         <div className="h-8 w-40 shrink-0 animate-pulse rounded-lg bg-[var(--surface-2)]" />
       </div>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  tone,
+  sub,
+}: {
+  label: string;
+  value: string | null;
+  tone?: "pending" | "approved";
+  sub?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 shadow-[var(--shadow)]">
+      <p className="v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">{label}</p>
+      {value === null ? (
+        <div className="mt-2 h-6 w-24 animate-pulse rounded-md bg-[var(--surface-2)]" />
+      ) : (
+        <p
+          className="mt-1.5 truncate v-tabular text-lg font-bold"
+          style={tone ? { color: `var(--${tone})` } : undefined}
+          title={value}
+        >
+          {value}
+        </p>
+      )}
+      {sub && value !== null && <p className="mt-0.5 v-tabular text-[11px] text-[var(--faint)]">{sub}</p>}
     </div>
   );
 }
