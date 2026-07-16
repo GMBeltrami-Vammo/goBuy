@@ -7,6 +7,13 @@
 -- Display id: CH-0001, CH-0002, … (mirrors next_request_display_id()).
 CREATE SEQUENCE IF NOT EXISTS finance.incoming_charge_display_seq;
 
+-- The inbound API inserts as the service role, and next_charge_display_id()
+-- (SECURITY INVOKER) runs nextval() as that caller — so the service role needs
+-- USAGE on the sequence, or every insert 403s on the display_id default. The
+-- pre-existing purchase_request_display_seq already grants this; new sequences
+-- in the finance schema don't inherit it, so grant it explicitly.
+GRANT USAGE, SELECT ON SEQUENCE finance.incoming_charge_display_seq TO service_role;
+
 CREATE OR REPLACE FUNCTION finance.next_charge_display_id()
  RETURNS text
  LANGUAGE plpgsql
