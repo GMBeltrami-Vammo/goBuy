@@ -50,7 +50,11 @@ CREATE TABLE IF NOT EXISTS finance.incoming_charges (
   decided_at        timestamptz,
   decided_by_email  text,
   decision_reason   text,
-  sheet_written_at  timestamptz                             -- stamped when TRUE is written back (deferred)
+  sheet_written_at  timestamptz,                            -- stamped when TRUE is written back (deferred)
+  -- Dedup on the source spreadsheet row: a re-sent row is skipped. The inbound
+  -- API upserts ON CONFLICT DO NOTHING and still returns success so the sender
+  -- doesn't retry. (NULLS DISTINCT — rows without a source row are not deduped.)
+  CONSTRAINT incoming_charges_sheet_row_key UNIQUE (sheet_name, sheet_row)
 );
 
 CREATE INDEX IF NOT EXISTS incoming_charges_cost_center_id_idx ON finance.incoming_charges (cost_center_id);

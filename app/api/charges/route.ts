@@ -106,31 +106,41 @@ export async function POST(request: Request) {
     sheet_row = Number.isFinite(n) ? n : null;
   }
 
+  // Upsert with ON CONFLICT DO NOTHING on (sheet_name, sheet_row): a re-sent
+  // source row is skipped rather than duplicated. On a skip, PostgREST returns
+  // no row → we report success (200) so the sender treats it as done.
   const { data: created, error: insErr } = await admin
     .from("incoming_charges")
-    .insert({
-      supplier_name,
-      nf_number: str(body.nf_number),
-      description: str(body.description),
-      cost_center_id: cc.id,
-      cost_center_input: ccInput,
-      due_date,
-      attachment_url: str(body.attachment_url),
-      boleto_url: str(body.boleto_url),
-      email: str(body.email),
-      payment_method: str(body.payment_method),
-      pix_key: str(body.pix_key),
-      amount,
-      observation: str(body.observation),
-      sheet_name: str(body.sheet),
-      sheet_row,
-    })
+    .upsert(
+      {
+        supplier_name,
+        nf_number: str(body.nf_number),
+        description: str(body.description),
+        cost_center_id: cc.id,
+        cost_center_input: ccInput,
+        due_date,
+        attachment_url: str(body.attachment_url),
+        boleto_url: str(body.boleto_url),
+        email: str(body.email),
+        payment_method: str(body.payment_method),
+        pix_key: str(body.pix_key),
+        amount,
+        observation: str(body.observation),
+        sheet_name: str(body.sheet),
+        sheet_row,
+      },
+      { onConflict: "sheet_name,sheet_row", ignoreDuplicates: true },
+    )
     .select("id, display_id, status")
-    .single();
+    .maybeSingle();
 
   if (insErr) {
     console.error("[api/charges] insert failed:", insErr.message);
     return NextResponse.json({ error: "Could not create charge." }, { status: 500 });
+  }
+
+  if (!created) {
+    return NextResponse.json({ skipped: true, reason: "duplicate row" }, { status: 200 });
   }
 
   return NextResponse.json(created, { status: 201 });
