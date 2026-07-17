@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 
 import { parseBRLDecimal, parseDMY } from "@/lib/format";
+import { parseRateio } from "@/lib/rateio";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -95,8 +96,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid amount." }, { status: 422 });
   }
 
+  // Rateio charges arrive with cost_center = "Rateio" and the split spelled out
+  // in the observation ("CC401 … (80%) CC402 … (20%)"). Route/approve them via
+  // the primary (first) segment's CC; the split is applied to budgets downstream.
+  let code = ccCode(ccInput);
+  const rateio = parseRateio(String(body.observation ?? ""));
+  if ((!code || /^rateio$/i.test(code)) && rateio.length > 0) {
+    code = rateio[0].code;
+  }
+
   const admin = supabaseAdmin();
-  const code = ccCode(ccInput);
   const { data: cc, error: ccErr } = await admin
     .from("cost_centers")
     .select("id")

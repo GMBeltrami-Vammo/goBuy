@@ -30,3 +30,23 @@ export function parseRateio(observation: string | null | undefined): RateioSegme
   }
   return out;
 }
+
+/**
+ * How a charge's amount is attributed to cost centers for budget purposes.
+ * With a rateio, each segment's amount goes to its own CC (mapped via codeToId,
+ * skipping CCs the viewer can't resolve). Without one, the full amount goes to
+ * the charge's single cost_center_id. Approval stays single (the primary CC).
+ */
+export function chargeContributions(
+  charge: { observation: string | null; cost_center_id: number; amount: number },
+  codeToId: Map<string, number>,
+): { id: number; amount: number }[] {
+  const segs = parseRateio(charge.observation);
+  if (segs.length > 0) {
+    return segs.flatMap((s) => {
+      const id = codeToId.get(s.code);
+      return id != null && s.amount != null ? [{ id, amount: s.amount }] : [];
+    });
+  }
+  return [{ id: charge.cost_center_id, amount: Number(charge.amount) }];
+}

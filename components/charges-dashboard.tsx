@@ -7,6 +7,7 @@ import { ChargeDetailModal } from "@/components/charge-detail-modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Pagination, usePagination } from "@/components/pagination";
 import { RateioLine } from "@/components/rateio-line";
+import { chargeContributions } from "@/lib/rateio";
 import { formatBRL, formatDateOnlyBR, isInvalidDMY, maskDMY, parseDMY } from "@/lib/format";
 import { formatAmount } from "@/lib/payment";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -126,16 +127,22 @@ export function ChargesDashboard({
   // ─── Budget aggregation (committed = approved + pending BRL, by due date) ──────
   const ym = (d: string) => d.slice(0, 7); // "yyyy-mm"
 
+  // Map CC code → id so rateio segments (which carry codes) attribute to the
+  // right center. Only the viewer's CCs are mappable (RLS scopes the rest).
+  const codeToId = useMemo(() => new Map(centers.map((c) => [c.code, c.id])), [centers]);
+
   const committedByCenter = useMemo(() => {
     const map = new Map<number, number>();
     for (const c of charges ?? []) {
       if (!COMMITTED_STATUSES.has(c.status) || !c.due_date) continue;
       if ((c.currency ?? "BRL") !== "BRL") continue; // budgets are in BRL — no FX
       if (ym(c.due_date) !== ym(selectedMonth)) continue;
-      map.set(c.cost_center_id, (map.get(c.cost_center_id) ?? 0) + Number(c.amount));
+      for (const { id, amount } of chargeContributions(c, codeToId)) {
+        map.set(id, (map.get(id) ?? 0) + amount);
+      }
     }
     return map;
-  }, [charges, selectedMonth]);
+  }, [charges, selectedMonth, codeToId]);
 
   const pendingAmountByCenter = useMemo(() => {
     const map = new Map<number, number>();
@@ -143,10 +150,12 @@ export function ChargesDashboard({
       if (c.status !== "pending" || !c.due_date) continue;
       if ((c.currency ?? "BRL") !== "BRL") continue;
       if (ym(c.due_date) !== ym(selectedMonth)) continue;
-      map.set(c.cost_center_id, (map.get(c.cost_center_id) ?? 0) + Number(c.amount));
+      for (const { id, amount } of chargeContributions(c, codeToId)) {
+        map.set(id, (map.get(id) ?? 0) + amount);
+      }
     }
     return map;
-  }, [charges, selectedMonth]);
+  }, [charges, selectedMonth, codeToId]);
 
   const foreignThisMonth = useMemo(
     () =>
@@ -624,6 +633,7 @@ export function ChargesDashboard({
           center={detailCc}
           budget={budgetByCenter.get(detailCc.id) ?? 0}
           charges={charges ?? []}
+          codeToId={codeToId}
           monthStart={selectedMonth}
           busyId={busyId}
           onApprove={approve}

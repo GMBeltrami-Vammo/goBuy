@@ -14,6 +14,7 @@ import {
 } from "recharts";
 
 import { RateioLine } from "@/components/rateio-line";
+import { chargeContributions } from "@/lib/rateio";
 import { formatBRL, formatDateOnlyBR } from "@/lib/format";
 import { formatAmount } from "@/lib/payment";
 import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
@@ -41,6 +42,7 @@ export function ChargeDetailModal({
   center,
   budget,
   charges,
+  codeToId,
   monthStart,
   busyId,
   onApprove,
@@ -50,6 +52,7 @@ export function ChargeDetailModal({
   center: CostCenter;
   budget: number;
   charges: IncomingCharge[];
+  codeToId: Map<string, number>;
   monthStart: string;
   busyId: string | null;
   onApprove: (c: IncomingCharge) => void;
@@ -72,22 +75,23 @@ export function ChargeDetailModal({
     [charges, center.id],
   );
 
-  // Budget math: approved + pending, BRL only, bucketed by due-date month.
-  const brlThisMonth = useMemo(
-    () =>
-      forCc.filter(
-        (c) =>
-          (c.status === "approved" || c.status === "pending") &&
-          (c.currency ?? "BRL") === "BRL" &&
-          !!c.due_date &&
-          c.due_date.slice(0, 7) === monthKey,
-      ),
-    [forCc, monthKey],
-  );
-  const committed = brlThisMonth.reduce((a, c) => a + Number(c.amount), 0);
-  const pendingBrl = brlThisMonth
-    .filter((c) => c.status === "pending")
-    .reduce((a, c) => a + Number(c.amount), 0);
+  // Budget math: this center's SHARE (rateio-aware) of approved + pending BRL
+  // charges due this month — so a split charge contributes only its slice here.
+  const contribRows = useMemo(() => {
+    const rows: { day: number; amount: number; pending: boolean }[] = [];
+    for (const c of charges) {
+      if (c.status !== "approved" && c.status !== "pending") continue;
+      if ((c.currency ?? "BRL") !== "BRL" || !c.due_date) continue;
+      if (c.due_date.slice(0, 7) !== monthKey) continue;
+      for (const { id, amount } of chargeContributions(c, codeToId)) {
+        if (id !== center.id) continue;
+        rows.push({ day: Number(c.due_date.slice(8, 10)), amount, pending: c.status === "pending" });
+      }
+    }
+    return rows;
+  }, [charges, codeToId, center.id, monthKey]);
+  const committed = contribRows.reduce((a, r) => a + r.amount, 0);
+  const pendingBrl = contribRows.filter((r) => r.pending).reduce((a, r) => a + r.amount, 0);
   const available = Math.max(0, budget - committed);
   const pct = budget > 0 ? Math.round((committed / budget) * 100) : 0;
 
@@ -112,10 +116,7 @@ export function ChargeDetailModal({
     const [y, m] = monthKey.split("-").map(Number);
     const daysInMonth = new Date(y, m, 0).getDate();
     const perDay = new Map<number, number>();
-    for (const c of brlThisMonth) {
-      const day = Number(c.due_date!.slice(8, 10));
-      perDay.set(day, (perDay.get(day) ?? 0) + Number(c.amount));
-    }
+    for (const r of contribRows) perDay.set(r.day, (perDay.get(r.day) ?? 0) + r.amount);
     let acc = 0;
     const rows: { day: number; valor: number; acumulado: number }[] = [];
     for (let d = 1; d <= daysInMonth; d++) {
@@ -124,7 +125,7 @@ export function ChargeDetailModal({
       rows.push({ day: d, valor: v, acumulado: acc });
     }
     return rows;
-  }, [brlThisMonth, monthKey]);
+  }, [contribRows, monthKey]);
 
   const monthLabel = new Date(`${monthStart}T12:00:00`).toLocaleDateString("pt-BR", {
     month: "long",
