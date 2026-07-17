@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { ChargeDetailModal } from "@/components/charge-detail-modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Pagination, usePagination } from "@/components/pagination";
 import { formatBRL, formatDateOnlyBR } from "@/lib/format";
@@ -75,8 +76,10 @@ export function ChargesDashboard({
   const [denyTarget, setDenyTarget] = useState<IncomingCharge | null>(null);
   const [denyReason, setDenyReason] = useState("");
   const [viewMode, setViewMode] = useState<"pizza" | "barra">("pizza");
-  const [focusCc, setFocusCc] = useState<number | null>(null);
+  const [detailCc, setDetailCc] = useState<CostCenter | null>(null);
+  const [selectedCcs, setSelectedCcs] = useState<Set<number>>(new Set());
   const busyRef = useRef(false);
+  const queueRef = useRef<HTMLDivElement>(null);
 
   const monthStart = useMemo(() => {
     const d = new Date();
@@ -113,7 +116,11 @@ export function ChargesDashboard({
     void load();
   }, [load]);
 
-  // ─── Budget aggregation (committed = approved + pending, bucketed by due date) ──
+  // The CC multi-select scopes BOTH the graphs and the tables. Empty = all.
+  const isVisible = (id: number) => selectedCcs.size === 0 || selectedCcs.has(id);
+  const selKey = [...selectedCcs].sort((a, b) => a - b).join(",");
+
+  // ─── Budget aggregation (committed = approved + pending BRL, by due date) ──────
   const ym = (d: string) => d.slice(0, 7); // "yyyy-mm"
 
   const committedByCenter = useMemo(() => {
@@ -131,15 +138,13 @@ export function ChargesDashboard({
     const map = new Map<number, number>();
     for (const c of charges ?? []) {
       if (c.status !== "pending" || !c.due_date) continue;
-      if ((c.currency ?? "BRL") !== "BRL") continue; // budgets are in BRL — no FX
+      if ((c.currency ?? "BRL") !== "BRL") continue;
       if (ym(c.due_date) !== ym(selectedMonth)) continue;
       map.set(c.cost_center_id, (map.get(c.cost_center_id) ?? 0) + Number(c.amount));
     }
     return map;
   }, [charges, selectedMonth]);
 
-  // Approved/pending charges this month in a non-BRL currency — shown in the
-  // queue but not summed into the BRL budget (we have no FX rates).
   const foreignThisMonth = useMemo(
     () =>
       (charges ?? []).filter(
@@ -147,9 +152,10 @@ export function ChargesDashboard({
           COMMITTED_STATUSES.has(c.status) &&
           !!c.due_date &&
           ym(c.due_date) === ym(selectedMonth) &&
-          (c.currency ?? "BRL") !== "BRL",
+          (c.currency ?? "BRL") !== "BRL" &&
+          isVisible(c.cost_center_id),
       ).length,
-    [charges, selectedMonth],
+    [charges, selectedMonth, selKey],
   );
 
   const budgetByCenter = useMemo(() => {
@@ -161,17 +167,20 @@ export function ChargesDashboard({
   }, [budgets, selectedMonth]);
 
   const totals = useMemo(() => {
-    const budget = centers.reduce((a, c) => a + (budgetByCenter.get(c.id) ?? 0), 0);
-    const committed = centers.reduce((a, c) => a + (committedByCenter.get(c.id) ?? 0), 0);
-    const pending = centers.reduce((a, c) => a + (pendingAmountByCenter.get(c.id) ?? 0), 0);
+    const visible = centers.filter((c) => isVisible(c.id));
+    const budget = visible.reduce((a, c) => a + (budgetByCenter.get(c.id) ?? 0), 0);
+    const committed = visible.reduce((a, c) => a + (committedByCenter.get(c.id) ?? 0), 0);
+    const pending = visible.reduce((a, c) => a + (pendingAmountByCenter.get(c.id) ?? 0), 0);
     return { budget, committed, pending, available: Math.max(0, budget - committed) };
-  }, [centers, budgetByCenter, committedByCenter, pendingAmountByCenter]);
+  }, [centers, budgetByCenter, committedByCenter, pendingAmountByCenter, selKey]);
 
-  // Only show CCs that have a budget or activity this month (keeps the view
-  // focused — a head of many CCs isn't flooded with empty cards).
+  // Graphs show CCs that are visible (per the filter) AND have budget or activity.
   const relevantCenters = useMemo(
-    () => centers.filter((c) => (budgetByCenter.get(c.id) ?? 0) > 0 || (committedByCenter.get(c.id) ?? 0) > 0),
-    [centers, budgetByCenter, committedByCenter],
+    () =>
+      centers.filter(
+        (c) => isVisible(c.id) && ((budgetByCenter.get(c.id) ?? 0) > 0 || (committedByCenter.get(c.id) ?? 0) > 0),
+      ),
+    [centers, budgetByCenter, committedByCenter, selKey],
   );
 
   const aggregateData = useMemo(
@@ -184,6 +193,12 @@ export function ChargesDashboard({
     [relevantCenters, committedByCenter, budgetByCenter],
   );
 
+  // CCs that actually have charges — the list offered in the multi-select filter.
+  const filterableCenters = useMemo(() => {
+    const withCharges = new Set((charges ?? []).map((c) => c.cost_center_id));
+    return centers.filter((c) => withCharges.has(c.id)).sort((a, b) => a.code.localeCompare(b.code));
+  }, [centers, charges]);
+
   const availableMonths = useMemo(() => {
     const set = new Set<string>(budgets.map((b) => b.period_month.slice(0, 10)));
     for (const c of charges ?? []) if (c.due_date) set.add(`${ym(c.due_date)}-01`);
@@ -195,20 +210,18 @@ export function ChargesDashboard({
     new Date(`${iso}T12:00:00`).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
   const isMockOrEmpty = hasCenters && budgets.length === 0;
 
-  // ─── Charge queues (respecting the CC drill-down filter) ──────────────────────
-  const inFocus = (c: IncomingCharge) => focusCc === null || c.cost_center_id === focusCc;
+  // ─── Charge queues (scoped by the multi-select filter) ────────────────────────
   const pending = useMemo(
-    () => (charges ?? []).filter((c) => c.status === "pending" && inFocus(c)),
-    [charges, focusCc],
+    () => (charges ?? []).filter((c) => c.status === "pending" && isVisible(c.cost_center_id)),
+    [charges, selKey],
   );
   const decided = useMemo(
-    () => (charges ?? []).filter((c) => c.status !== "pending" && inFocus(c)),
-    [charges, focusCc],
+    () => (charges ?? []).filter((c) => c.status !== "pending" && isVisible(c.cost_center_id)),
+    [charges, selKey],
   );
 
-  const pendingPager = usePagination(pending, `pending|${focusCc}`);
-  const decidedPager = usePagination(decided, `decided|${focusCc}`);
-  const focusLabel = focusCc !== null ? centers.find((c) => c.id === focusCc)?.code ?? null : null;
+  const pendingPager = usePagination(pending, `pending|${selKey}`);
+  const decidedPager = usePagination(decided, `decided|${selKey}`);
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -255,6 +268,19 @@ export function ChargesDashboard({
     void load();
   };
 
+  const requestDeny = (c: IncomingCharge) => {
+    setDenyReason("");
+    setDenyTarget(c);
+  };
+
+  const toggleCc = (id: number) =>
+    setSelectedCcs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
   const loading = charges === null;
 
   return (
@@ -267,9 +293,13 @@ export function ChargesDashboard({
           </p>
         </div>
         {pending.length > 0 && (
-          <span className="rounded-full bg-[var(--pending-soft)] px-4 py-1.5 v-tabular text-sm font-bold text-[var(--pending)]">
-            {pending.length} pendente{pending.length === 1 ? "" : "s"}
-          </span>
+          <button
+            onClick={() => queueRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            title="Ir para a fila de aprovação"
+            className="rounded-full bg-[var(--pending-soft)] px-4 py-1.5 v-tabular text-sm font-bold text-[var(--pending)] transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+          >
+            {pending.length} pendente{pending.length === 1 ? "" : "s"} ↓
+          </button>
         )}
       </div>
 
@@ -286,7 +316,7 @@ export function ChargesDashboard({
       {hasCenters && (
         <>
           <div className="reveal reveal-2 mt-7">
-            <div className="mb-3 flex items-center gap-2">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
               <label htmlFor="charges-month" className="text-xs font-medium text-[var(--muted)]">
                 Mês de referência
               </label>
@@ -300,6 +330,12 @@ export function ChargesDashboard({
                   <option key={m} value={m}>{monthName(m)}</option>
                 ))}
               </select>
+              <CcMultiSelect
+                centers={filterableCenters}
+                selected={selectedCcs}
+                onToggle={toggleCc}
+                onClear={() => setSelectedCcs(new Set())}
+              />
               {selectedMonth !== monthStart && (
                 <button
                   onClick={() => setSelectedMonth(monthStart)}
@@ -335,7 +371,7 @@ export function ChargesDashboard({
             <div className="reveal reveal-3 mt-6 space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <p className="v-tabular text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">
-                  Por centro de custo — {monthName(selectedMonth)}
+                  Por centro de custo — {monthName(selectedMonth)} · clique para abrir
                 </p>
                 <div
                   role="group"
@@ -359,7 +395,7 @@ export function ChargesDashboard({
                 </div>
               </div>
 
-              <HeadAggregateChart data={aggregateData} viewMode={viewMode} onOpenCenter={(cc) => setFocusCc(cc.id)} />
+              <HeadAggregateChart data={aggregateData} viewMode={viewMode} onOpenCenter={setDetailCc} />
 
               {viewMode === "pizza" && (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -369,9 +405,9 @@ export function ChargesDashboard({
                     return (
                       <button
                         key={cc.id}
-                        onClick={() => setFocusCc(cc.id)}
+                        onClick={() => setDetailCc(cc)}
                         className="flex items-center gap-4 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-left shadow-[var(--shadow)] transition hover:border-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-                        title="Filtrar cobranças deste centro de custo"
+                        title="Abrir detalhes e decidir"
                       >
                         <BudgetDonut consumed={consumed} budget={budget} />
                         <div className="min-w-0 flex-1">
@@ -393,17 +429,17 @@ export function ChargesDashboard({
       )}
 
       {/* Pending queue */}
-      <div className="reveal reveal-4 mt-8 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
+      <div ref={queueRef} className="reveal reveal-4 mt-8 scroll-mt-4 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-5 py-3.5">
           <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
             Aguardando sua decisão
           </h2>
-          {focusLabel && (
+          {selectedCcs.size > 0 && (
             <button
-              onClick={() => setFocusCc(null)}
+              onClick={() => setSelectedCcs(new Set())}
               className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-semibold text-[var(--accent)] transition hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             >
-              Filtrando: {focusLabel} ✕
+              {selectedCcs.size} centro(s) selecionado(s) ✕
             </button>
           )}
         </div>
@@ -416,7 +452,7 @@ export function ChargesDashboard({
           </div>
         ) : pending.length === 0 ? (
           <p className="px-5 py-12 text-center text-sm text-[var(--faint)]">
-            Nenhuma cobrança pendente {focusLabel ? "para este centro de custo" : "por aqui"}.
+            Nenhuma cobrança pendente {selectedCcs.size > 0 ? "para os centros selecionados" : "por aqui"}.
           </p>
         ) : (
           <>
@@ -465,7 +501,7 @@ export function ChargesDashboard({
                             {busyId === c.id ? "…" : "Aprovar"}
                           </button>
                           <button
-                            onClick={() => { setDenyReason(""); setDenyTarget(c); }}
+                            onClick={() => requestDeny(c)}
                             disabled={busyId === c.id}
                             className="rounded-lg border border-[var(--rejected)] px-3 py-1.5 text-xs font-bold text-[var(--rejected)] transition hover:bg-[var(--rejected-soft)] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                           >
@@ -530,6 +566,19 @@ export function ChargesDashboard({
         </div>
       )}
 
+      {detailCc && (
+        <ChargeDetailModal
+          center={detailCc}
+          budget={budgetByCenter.get(detailCc.id) ?? 0}
+          charges={charges ?? []}
+          monthStart={selectedMonth}
+          busyId={busyId}
+          onApprove={approve}
+          onDeny={requestDeny}
+          onClose={() => setDetailCc(null)}
+        />
+      )}
+
       {denyTarget && (
         <ConfirmDialog
           title={`Recusar ${denyTarget.display_id}?`}
@@ -551,6 +600,56 @@ export function ChargesDashboard({
         </ConfirmDialog>
       )}
     </div>
+  );
+}
+
+function CcMultiSelect({
+  centers,
+  selected,
+  onToggle,
+  onClear,
+}: {
+  centers: CostCenter[];
+  selected: Set<number>;
+  onToggle: (id: number) => void;
+  onClear: () => void;
+}) {
+  if (centers.length === 0) return null;
+  const label =
+    selected.size === 0 ? "todos" : `${selected.size} de ${centers.length}`;
+  return (
+    <details className="relative">
+      <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg border border-[var(--line-strong)] bg-[var(--bg)] px-3 py-1.5 text-sm font-medium text-[var(--ink)] transition hover:border-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
+        Centros: {label} <span className="text-[var(--faint)]">▾</span>
+      </summary>
+      <div className="absolute z-20 mt-1 max-h-72 w-80 overflow-y-auto rounded-lg border border-[var(--line)] bg-[var(--surface)] p-2 shadow-[var(--shadow)]">
+        <div className="flex items-center justify-between px-1 pb-1">
+          <span className="v-tabular text-[10px] uppercase tracking-widest text-[var(--faint)]">
+            {centers.length} com cobranças
+          </span>
+          {selected.size > 0 && (
+            <button onClick={onClear} className="text-[11px] font-semibold text-[var(--accent)] hover:underline">
+              Limpar
+            </button>
+          )}
+        </div>
+        {centers.map((cc) => (
+          <label
+            key={cc.id}
+            className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-[var(--surface-2)]"
+          >
+            <input
+              type="checkbox"
+              checked={selected.has(cc.id)}
+              onChange={() => onToggle(cc.id)}
+              className="h-4 w-4 accent-[var(--accent)]"
+            />
+            <span className="v-tabular text-xs font-semibold">{cc.code}</span>
+            <span className="min-w-0 flex-1 truncate text-xs text-[var(--muted)]" title={cc.name}>{cc.name}</span>
+          </label>
+        ))}
+      </div>
+    </details>
   );
 }
 
