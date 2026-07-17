@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChargeDetailModal } from "@/components/charge-detail-modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Pagination, usePagination } from "@/components/pagination";
-import { formatBRL, formatDateOnlyBR } from "@/lib/format";
+import { formatBRL, formatDateOnlyBR, isInvalidDMY, maskDMY, parseDMY } from "@/lib/format";
 import { formatAmount } from "@/lib/payment";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { CostCenter, CostCenterBudget, IncomingCharge } from "@/lib/types";
@@ -78,6 +78,8 @@ export function ChargesDashboard({
   const [viewMode, setViewMode] = useState<"pizza" | "barra">("pizza");
   const [detailCc, setDetailCc] = useState<CostCenter | null>(null);
   const [selectedCcs, setSelectedCcs] = useState<Set<number>>(new Set());
+  const [dueFrom, setDueFrom] = useState("");
+  const [dueTo, setDueTo] = useState("");
   const busyRef = useRef(false);
   const queueRef = useRef<HTMLDivElement>(null);
 
@@ -211,17 +213,27 @@ export function ChargesDashboard({
   const isMockOrEmpty = hasCenters && budgets.length === 0;
 
   // ─── Charge queues (scoped by the multi-select filter) ────────────────────────
+  const dueFromYMD = parseDMY(dueFrom);
+  const dueToYMD = parseDMY(dueTo);
+  const inDueRange = (c: IncomingCharge) => {
+    if (dueFromYMD && (!c.due_date || c.due_date < dueFromYMD)) return false;
+    if (dueToYMD && (!c.due_date || c.due_date > dueToYMD)) return false;
+    return true;
+  };
+  const dateInvalid = isInvalidDMY(dueFrom) || isInvalidDMY(dueTo);
+  const anyTableFilter = selectedCcs.size > 0 || !!dueFrom || !!dueTo;
+
   const pending = useMemo(
-    () => (charges ?? []).filter((c) => c.status === "pending" && isVisible(c.cost_center_id)),
-    [charges, selKey],
+    () => (charges ?? []).filter((c) => c.status === "pending" && isVisible(c.cost_center_id) && inDueRange(c)),
+    [charges, selKey, dueFrom, dueTo],
   );
   const decided = useMemo(
-    () => (charges ?? []).filter((c) => c.status !== "pending" && isVisible(c.cost_center_id)),
-    [charges, selKey],
+    () => (charges ?? []).filter((c) => c.status !== "pending" && isVisible(c.cost_center_id) && inDueRange(c)),
+    [charges, selKey, dueFrom, dueTo],
   );
 
-  const pendingPager = usePagination(pending, `pending|${selKey}`);
-  const decidedPager = usePagination(decided, `decided|${selKey}`);
+  const pendingPager = usePagination(pending, `pending|${selKey}|${dueFrom}|${dueTo}`);
+  const decidedPager = usePagination(decided, `decided|${selKey}|${dueFrom}|${dueTo}`);
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -430,18 +442,57 @@ export function ChargesDashboard({
 
       {/* Pending queue */}
       <div ref={queueRef} className="reveal reveal-4 mt-8 scroll-mt-4 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-5 py-3.5">
+        <div className="space-y-2.5 border-b border-[var(--line)] px-5 py-3">
           <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
             Aguardando sua decisão
           </h2>
-          {selectedCcs.size > 0 && (
-            <button
-              onClick={() => setSelectedCcs(new Set())}
-              className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-semibold text-[var(--accent)] transition hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-            >
-              {selectedCcs.size} centro(s) selecionado(s) ✕
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <CcMultiSelect
+              centers={filterableCenters}
+              selected={selectedCcs}
+              onToggle={toggleCc}
+              onClear={() => setSelectedCcs(new Set())}
+            />
+            <span className="ml-1 v-tabular text-[10px] uppercase tracking-[0.15em] text-[var(--faint)]">Venc.</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={10}
+              placeholder="dd/mm/yyyy"
+              value={dueFrom}
+              onChange={(e) => setDueFrom(maskDMY(e.target.value))}
+              aria-invalid={isInvalidDMY(dueFrom)}
+              aria-label="Vencimento de (dd/mm/yyyy)"
+              className={`w-24 rounded-md border bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] ${
+                isInvalidDMY(dueFrom) ? "border-[var(--rejected)]" : "border-[var(--line-strong)]"
+              }`}
+            />
+            <span className="text-[11px] text-[var(--faint)]">—</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={10}
+              placeholder="dd/mm/yyyy"
+              value={dueTo}
+              onChange={(e) => setDueTo(maskDMY(e.target.value))}
+              aria-invalid={isInvalidDMY(dueTo)}
+              aria-label="Vencimento até (dd/mm/yyyy)"
+              className={`w-24 rounded-md border bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] ${
+                isInvalidDMY(dueTo) ? "border-[var(--rejected)]" : "border-[var(--line-strong)]"
+              }`}
+            />
+            {dateInvalid && (
+              <span role="alert" className="text-[11px] text-[var(--rejected)]">Data inválida</span>
+            )}
+            {anyTableFilter && (
+              <button
+                onClick={() => { setSelectedCcs(new Set()); setDueFrom(""); setDueTo(""); }}
+                className="ml-1 rounded text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              >
+                Limpar filtros
+              </button>
+            )}
+          </div>
         </div>
 
         {loading ? (
@@ -452,7 +503,7 @@ export function ChargesDashboard({
           </div>
         ) : pending.length === 0 ? (
           <p className="px-5 py-12 text-center text-sm text-[var(--faint)]">
-            Nenhuma cobrança pendente {selectedCcs.size > 0 ? "para os centros selecionados" : "por aqui"}.
+            Nenhuma cobrança pendente {anyTableFilter ? "com os filtros atuais" : "por aqui"}.
           </p>
         ) : (
           <>
