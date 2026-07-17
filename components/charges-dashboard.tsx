@@ -62,12 +62,10 @@ export function ChargesDashboard({
   email,
   supabaseToken,
   centerIds,
-  canResync = false,
 }: {
   email: string;
   supabaseToken: string;
   centerIds: number[];
-  canResync?: boolean;
 }) {
   const [charges, setCharges] = useState<IncomingCharge[] | null>(null);
   const [centers, setCenters] = useState<CostCenter[]>([]);
@@ -257,31 +255,6 @@ export function ChargesDashboard({
     void load();
   };
 
-  // Approved charges whose sheet write-back never landed (e.g. approved before
-  // the webhook was deployed, or a transient failure). Admins can re-fire it.
-  const stuckCount = useMemo(
-    () =>
-      (charges ?? []).filter(
-        (c) => c.status === "approved" && !c.sheet_written_at && c.sheet_row != null,
-      ).length,
-    [charges],
-  );
-
-  const resync = async () => {
-    const res = await fetch("/api/charges/resync", { method: "POST" });
-    const body = (await res.json().catch(() => ({}))) as {
-      attempted?: number;
-      written?: number;
-      error?: string;
-    };
-    if (!res.ok) {
-      flash(body.error ?? "Falha ao resincronizar a planilha.");
-      return;
-    }
-    flash(`Planilha resincronizada: ${body.written ?? 0} de ${body.attempted ?? 0} cobrança(s).`);
-    void load();
-  };
-
   const loading = charges === null;
 
   return (
@@ -293,22 +266,11 @@ export function ChargesDashboard({
             Aprove ou recuse as cobranças dos seus centros de custo.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {canResync && stuckCount > 0 && (
-            <button
-              onClick={() => void resync()}
-              title="Reenviar à planilha as cobranças aprovadas que ainda não foram gravadas"
-              className="rounded-lg border border-[var(--line-strong)] px-3 py-1.5 text-xs font-semibold text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-            >
-              Resincronizar planilha ({stuckCount})
-            </button>
-          )}
-          {pending.length > 0 && (
-            <span className="rounded-full bg-[var(--pending-soft)] px-4 py-1.5 v-tabular text-sm font-bold text-[var(--pending)]">
-              {pending.length} pendente{pending.length === 1 ? "" : "s"}
-            </span>
-          )}
-        </div>
+        {pending.length > 0 && (
+          <span className="rounded-full bg-[var(--pending-soft)] px-4 py-1.5 v-tabular text-sm font-bold text-[var(--pending)]">
+            {pending.length} pendente{pending.length === 1 ? "" : "s"}
+          </span>
+        )}
       </div>
 
       {toast && (
