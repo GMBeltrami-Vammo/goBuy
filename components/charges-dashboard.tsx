@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChargeDetailModal } from "@/components/charge-detail-modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Pagination, usePagination } from "@/components/pagination";
+import { RateioLine } from "@/components/rateio-line";
 import { formatBRL, formatDateOnlyBR, isInvalidDMY, maskDMY, parseDMY } from "@/lib/format";
 import { formatAmount } from "@/lib/payment";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -529,6 +530,7 @@ export function ChargesDashboard({
                         {c.description && (
                           <div className="max-w-[28ch] truncate text-xs text-[var(--muted)]" title={c.description}>{c.description}</div>
                         )}
+                        <RateioLine observation={c.observation} />
                         <ChargeLinks charge={c} />
                       </td>
                       <td className="px-2 py-3.5">
