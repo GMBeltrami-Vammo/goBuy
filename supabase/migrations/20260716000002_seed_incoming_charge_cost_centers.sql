@@ -9,13 +9,13 @@
 -- (cost_center_id, head_email)). Existing CCs keep their name/department and are
 -- only (re)activated; missing CCs are created with the list's name/department.
 --
--- ⚠ BEFORE APPLYING: replace 'fernanda@vammo.com' below with fernanda's exact
---   @vammo.com address (she is the head of the 3 headless "Other" CCs).
+-- Fernanda (fernanda.silva@vammo.com) is the head of the 3 headless "Other" CCs.
 
 with rows(code, name, department, head_email, head_name) as (values
   ('1001','Marketing: Payroll','Marketing','joana@vammo.com','Joana Veiga'),
   ('1002','Marketing: Expenses','Marketing','joana@vammo.com','Joana Veiga'),
   ('1003','Marketing: Paid Media - Growth','Marketing','joana@vammo.com','Joana Veiga'),
+  ('1004','Marketing: Advertising','Marketing','joana@vammo.com','Joana Veiga'),
   ('1005','Marketing: Branding Materials','Marketing','joana@vammo.com','Joana Veiga'),
   ('1006','Marketing: Licenses','Marketing','joana@vammo.com','Joana Veiga'),
   ('1101','Sales: Payroll - Sales team','Sales','joana@vammo.com','Joana Veiga'),
@@ -67,12 +67,14 @@ with rows(code, name, department, head_email, head_name) as (values
   ('1906','Facilities: EPI & Uniforms','Facilities','paula@vammo.com','Paula Cunha'),
   ('1907','Facilities: Expenses','Facilities','paula@vammo.com','Paula Cunha'),
   ('1908','Facilities: TI','Facilities','paula@vammo.com','Paula Cunha'),
-  ('2001','Other - Income/Expenses: Other - Income','Other','fernanda@vammo.com','Fernanda'),
-  ('2004','Other - Income/Expenses: Profit/Loss on sales of Asset','Other','fernanda@vammo.com','Fernanda'),
-  ('2006','Other - Bad Debts','Other','fernanda@vammo.com','Fernanda'),
+  ('2001','Other - Income/Expenses: Other - Income','Other','fernanda.silva@vammo.com','Fernanda'),
+  ('2004','Other - Income/Expenses: Profit/Loss on sales of Asset','Other','fernanda.silva@vammo.com','Fernanda'),
+  ('2006','Other - Bad Debts','Other','fernanda.silva@vammo.com','Fernanda'),
   ('2406','CapEx: Cabinets - Instalation cost','Charging','eduardo.romitelli@vammo.com','Eduardo Romitelli'),
+  ('2407','CapEx: Motorcycle Trunk','Supply','pablo@vammo.com','Pablo Estrela'),
   ('2601','Supply Chain: Payroll','Supply','pablo@vammo.com','Pablo Estrela'),
   ('2602','Supply Chain: Expenses','Supply','pablo@vammo.com','Pablo Estrela'),
+  ('2701','Operational Real Estate: Real State','Operational Real Estate','fernanda.silva@vammo.com','Fernanda'),
   ('401','Charging Infra/Energy: Electricity','Charging','eduardo.romitelli@vammo.com','Eduardo Romitelli'),
   ('402','Charging Infra/Energy: Cabinets Real Estate','Charging','eduardo.romitelli@vammo.com','Eduardo Romitelli'),
   ('403','Charging Infra/Energy: Manual Swapping Stations','Charging','eduardo.romitelli@vammo.com','Eduardo Romitelli'),
