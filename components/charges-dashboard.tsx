@@ -8,7 +8,8 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Pagination, usePagination } from "@/components/pagination";
 import { RateioLine } from "@/components/rateio-line";
 import { chargeContributions } from "@/lib/rateio";
-import { formatBRL, formatDateOnlyBR, isInvalidDMY, maskDMY, parseDMY } from "@/lib/format";
+import { brtYmd, formatBRL, formatDateOnlyBR, isInvalidDMY, maskDMY, parseDMY } from "@/lib/format";
+import { paymentSchedule } from "@/lib/payment-schedule";
 import { formatAmount } from "@/lib/payment";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { CostCenter, CostCenterBudget, IncomingCharge } from "@/lib/types";
@@ -615,21 +616,50 @@ export function ChargesDashboard({
           <div className="overflow-x-auto">
             <table className="w-full" aria-label="Cobranças decididas">
               <tbody>
-                {decidedPager.pageItems.map((c) => (
-                  <tr key={c.id} className="border-b border-[var(--line)] last:border-b-0">
-                    <td className="w-[80px] px-5 py-3 v-tabular text-xs font-semibold text-[var(--accent)]">{c.display_id}</td>
-                    <td className="px-2 py-3">
-                      <div className="text-sm">{c.supplier_name}</div>
-                      <div className="text-[11px] text-[var(--faint)]">
-                        {c.cost_centers ? `${c.cost_centers.code} — ${c.cost_centers.name}` : c.cost_center_id}
-                      </div>
-                    </td>
-                    <td className="hidden px-2 py-3 text-right v-tabular text-xs text-[var(--muted)] sm:table-cell">
-                      {fmtMoney(Number(c.amount), c.currency)}
-                    </td>
-                    <td className="px-5 py-3 text-right"><ChargeStatusBadge status={c.status} /></td>
-                  </tr>
-                ))}
+                {decidedPager.pageItems.map((c) => {
+                  // Approved charges carry a scheduled payment date (next Tue/Fri
+                  // ≥ 1 day after approval). When it differs from the Vencimento,
+                  // the payment was reprogramado — highlight the row + show it.
+                  const sched =
+                    c.status === "approved" && c.decided_at
+                      ? paymentSchedule(brtYmd(c.decided_at), c.due_date)
+                      : null;
+                  const rescheduled = sched?.rescheduled ?? false;
+                  return (
+                    <tr
+                      key={c.id}
+                      className={`border-b border-[var(--line)] last:border-b-0 ${
+                        rescheduled ? "bg-[var(--pending-soft)]" : ""
+                      }`}
+                    >
+                      <td className="w-[80px] px-5 py-3 v-tabular text-xs font-semibold text-[var(--accent)]">{c.display_id}</td>
+                      <td className="px-2 py-3">
+                        <div className="text-sm">{c.supplier_name}</div>
+                        <div className="text-[11px] text-[var(--faint)]">
+                          {c.cost_centers ? `${c.cost_centers.code} — ${c.cost_centers.name}` : c.cost_center_id}
+                        </div>
+                        {sched &&
+                          (rescheduled ? (
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5 v-tabular text-[11px] font-medium text-[var(--pending-text-strong)]">
+                              <span className="rounded bg-[var(--pending)] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--on-status)]">
+                                Reprogramado
+                              </span>
+                              {c.due_date ? `${formatDateOnlyBR(c.due_date)} → ` : ""}
+                              {formatDateOnlyBR(sched.newPaymentDate)}
+                            </div>
+                          ) : (
+                            <div className="mt-1 v-tabular text-[11px] text-[var(--muted)]">
+                              Pagamento: {formatDateOnlyBR(sched.newPaymentDate)}
+                            </div>
+                          ))}
+                      </td>
+                      <td className="hidden px-2 py-3 text-right v-tabular text-xs text-[var(--muted)] sm:table-cell">
+                        {fmtMoney(Number(c.amount), c.currency)}
+                      </td>
+                      <td className="px-5 py-3 text-right"><ChargeStatusBadge status={c.status} /></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { brtYmd, formatDateOnlyBR } from "@/lib/format";
+import { headApprovalTimeString, paymentSchedule } from "@/lib/payment-schedule";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 // Google Apps Script that writes TRUE back to the source spreadsheet row on
@@ -27,6 +29,8 @@ export async function writeChargeToSheet(charge: {
   id: string;
   sheet_row: number | null;
   sheet_written_at: string | null;
+  decided_at: string | null;
+  due_date: string | null;
 }): Promise<SheetWriteResult> {
   if (charge.sheet_written_at) return { ok: true, already: true };
   if (charge.sheet_row == null) return { ok: false, reason: "no_row" };
@@ -37,11 +41,24 @@ export async function writeChargeToSheet(charge: {
     return { ok: false, reason: "no_key" };
   }
 
+  // Schedule the payment (next Tue/Fri ≥ 1 day after approval) and build the
+  // human-readable approval stamp. Approval time is the charge's decided_at
+  // (falling back to now for safety), in BRT.
+  const approvalIso = charge.decided_at ?? new Date().toISOString();
+  const { newPaymentDate, rescheduled } = paymentSchedule(brtYmd(approvalIso), charge.due_date);
+  const head_approval_time = headApprovalTimeString(
+    approvalIso,
+    charge.due_date,
+    newPaymentDate,
+    rescheduled,
+  );
+  const payment_date = formatDateOnlyBR(newPaymentDate); // DD/MM/YYYY
+
   try {
     const res = await fetch(HEAD_APPROVAL_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ row: charge.sheet_row, secret }),
+      body: JSON.stringify({ row: charge.sheet_row, secret, head_approval_time, payment_date }),
       redirect: "follow",
     });
     const result = (await res.json().catch(() => null)) as

@@ -34,6 +34,22 @@ export const brtYmd = (iso: string): string =>
     day: "2-digit",
   }).format(new Date(iso));
 
+/** A timestamp in São Paulo time as "DD-MM-YYYY HH:MM" (24h) — the head-approval
+ *  stamp sent to the sheet. Dashes in the date, colon in the time, by design. */
+export const brtStamp = (iso: string): string => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(iso));
+  const g = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${g("day")}-${g("month")}-${g("year")} ${g("hour")}:${g("minute")}`;
+};
+
 // ─── dd/mm/yyyy date-filter helpers (shared by the dashboards) ────────────────
 
 /** Auto-slash mask for dd/mm/yyyy filter inputs. */
