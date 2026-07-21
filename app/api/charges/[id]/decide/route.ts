@@ -60,27 +60,27 @@ export async function POST(
     );
   }
 
-  // On approval, tell the Google Apps Script to write TRUE back to the source
-  // row. Done inline (awaited) rather than via after(): Vercel can drop after()
-  // work when the function is frozen right after the response, which silently
-  // skipped the write. The sheet_written_at stamp guards against a double write.
-  // The result is returned so a failure is visible (it used to be logs-only).
+  // Write the decision back to the source sheet row (approve → TRUE + payment
+  // date; deny → "Recusada" + on-time payment date). Done inline (awaited)
+  // rather than via after(): Vercel can drop after() work when the function is
+  // frozen right after the response, which silently skipped the write. The
+  // sheet_written_at stamp guards against a double write. The result is returned
+  // so a failure is visible (it used to be logs-only).
   let sheet: SheetWriteResult | undefined;
-  if (action === "approve") {
-    const { data: charge } = await supabaseAdmin()
-      .from("incoming_charges")
-      .select("sheet_row, sheet_written_at, decided_at, due_date")
-      .eq("id", id)
-      .maybeSingle();
-    if (charge) {
-      sheet = await writeChargeToSheet({
-        id,
-        sheet_row: charge.sheet_row as number | null,
-        sheet_written_at: charge.sheet_written_at as string | null,
-        decided_at: charge.decided_at as string | null,
-        due_date: charge.due_date as string | null,
-      });
-    }
+  const { data: charge } = await supabaseAdmin()
+    .from("incoming_charges")
+    .select("sheet_row, sheet_written_at, decided_at, due_date")
+    .eq("id", id)
+    .maybeSingle();
+  if (charge) {
+    sheet = await writeChargeToSheet({
+      id,
+      sheet_row: charge.sheet_row as number | null,
+      sheet_written_at: charge.sheet_written_at as string | null,
+      decided_at: charge.decided_at as string | null,
+      due_date: charge.due_date as string | null,
+      action,
+    });
   }
 
   return NextResponse.json({ ok: true, sheet });

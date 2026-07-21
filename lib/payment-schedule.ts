@@ -32,16 +32,10 @@ export function nextPaymentDate(approvalYmd: string): string {
   return toYmd(dt);
 }
 
-/**
- * Latest date the charge can still be approved without its payment slipping past
- * the cycle its due date warrants. The on-time payment is nextPaymentDate(due);
- * approving any later than the day before that payday pushes payment to a later
- * Tuesday/Friday. Because payments run only Tue/Fri, this is often a day or two
- * AFTER the Vencimento itself. Returns yyyy-mm-dd.
- */
-export function lastSafeApprovalDate(dueYmd: string): string {
-  const target = nextPaymentDate(dueYmd);
-  const [y, m, d] = target.split("-").map(Number);
+/** The calendar day before `ymd` (yyyy-mm-dd). Used for the "Nova data limite"
+ *  (last day to approve and still hit that payment): the day before the payment. */
+export function dayBefore(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   dt.setUTCDate(dt.getUTCDate() - 1);
   return toYmd(dt);

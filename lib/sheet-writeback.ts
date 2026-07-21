@@ -1,7 +1,7 @@
 import "server-only";
 
-import { brtYmd, formatDateOnlyBR } from "@/lib/format";
-import { headApprovalTimeString, paymentSchedule } from "@/lib/payment-schedule";
+import { brtStamp, brtYmd, formatDateOnlyBR } from "@/lib/format";
+import { headApprovalTimeString, nextPaymentDate, paymentSchedule } from "@/lib/payment-schedule";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 // Google Apps Script that writes TRUE back to the source spreadsheet row on
@@ -17,9 +17,15 @@ export type SheetWriteResult =
   | { ok: false; reason: "no_row" | "no_key" | "rejected" | "error"; detail?: string };
 
 /**
- * Write TRUE back to the source sheet row for an approved charge, then stamp
+ * Write the decision back to the source sheet row, then stamp
  * incoming_charges.sheet_written_at so it isn't written twice. Idempotent and
  * safe to retry: no-ops when already written or when there's no source row.
+ *
+ * On approval: head_approval_time carries the reprogramming narrative and
+ * payment_date is the effective (rescheduled) payment date. On refusal:
+ * head_approval_time is a "Recusada" stamp and payment_date is the on-time
+ * (within-due-time) payment date — nextPaymentDate(vencimento), reprogrammed to
+ * the next Tue/Fri — matching what an on-time approval would have paid.
  *
  * Apps Script always returns HTTP 200 (after a 302 redirect), with the real
  * outcome in the JSON body ({status:"error", …} on a rejected/failed write), so
@@ -31,6 +37,7 @@ export async function writeChargeToSheet(charge: {
   sheet_written_at: string | null;
   decided_at: string | null;
   due_date: string | null;
+  action: "approve" | "deny";
 }): Promise<SheetWriteResult> {
   if (charge.sheet_written_at) return { ok: true, already: true };
   if (charge.sheet_row == null) return { ok: false, reason: "no_row" };
@@ -41,18 +48,21 @@ export async function writeChargeToSheet(charge: {
     return { ok: false, reason: "no_key" };
   }
 
-  // Schedule the payment (next Tue/Fri ≥ 1 day after approval) and build the
-  // human-readable approval stamp. Approval time is the charge's decided_at
-  // (falling back to now for safety), in BRT.
+  // Decision time is the charge's decided_at (falling back to now), in BRT.
   const approvalIso = charge.decided_at ?? new Date().toISOString();
-  const { newPaymentDate, rescheduled } = paymentSchedule(brtYmd(approvalIso), charge.due_date);
-  const head_approval_time = headApprovalTimeString(
-    approvalIso,
-    charge.due_date,
-    newPaymentDate,
-    rescheduled,
-  );
-  const payment_date = formatDateOnlyBR(newPaymentDate); // DD/MM/YYYY
+  let head_approval_time: string;
+  let payment_date: string;
+  if (charge.action === "deny") {
+    // On refusal, record the on-time payment date (as if approved within due
+    // time) — the payday after the Vencimento, reprogrammed to Tue/Fri.
+    const onTime = nextPaymentDate(charge.due_date ?? brtYmd(approvalIso));
+    head_approval_time = `${brtStamp(approvalIso)} - Recusada.`;
+    payment_date = formatDateOnlyBR(onTime);
+  } else {
+    const { newPaymentDate, rescheduled } = paymentSchedule(brtYmd(approvalIso), charge.due_date);
+    head_approval_time = headApprovalTimeString(approvalIso, charge.due_date, newPaymentDate, rescheduled);
+    payment_date = formatDateOnlyBR(newPaymentDate); // DD/MM/YYYY
+  }
 
   try {
     const res = await fetch(HEAD_APPROVAL_WEBHOOK_URL, {

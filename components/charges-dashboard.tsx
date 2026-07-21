@@ -8,8 +8,8 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Pagination, usePagination } from "@/components/pagination";
 import { RateioLine } from "@/components/rateio-line";
 import { chargeContributions } from "@/lib/rateio";
-import { brtYmd, formatBRL, formatDateOnlyBR, isInvalidDMY, maskDMY, parseDMY } from "@/lib/format";
-import { lastSafeApprovalDate, paymentSchedule } from "@/lib/payment-schedule";
+import { brtDateTimeBR, brtYmd, formatBRL, formatDateOnlyBR, isInvalidDMY, maskDMY, parseDMY } from "@/lib/format";
+import { dayBefore, paymentSchedule } from "@/lib/payment-schedule";
 import { formatAmount } from "@/lib/payment";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { CostCenter, CostCenterBudget, IncomingCharge } from "@/lib/types";
@@ -270,7 +270,7 @@ export function ChargesDashboard({
       const body = (await res.json().catch(() => ({}))) as {
         sheet?: { ok: boolean };
       };
-      return { ok: true, sheetFailed: action === "approve" && body.sheet?.ok === false };
+      return { ok: true, sheetFailed: body.sheet?.ok === false };
     } catch {
       return { ok: false, sheetFailed: false };
     }
@@ -316,11 +316,8 @@ export function ChargesDashboard({
         );
         return;
       }
-      flash(
-        action === "approve"
-          ? `${c.display_id} aprovada.${sheetFailed ? " (planilha não confirmada — verifique a integração)" : ""}`
-          : `${c.display_id} recusada.`,
-      );
+      const note = sheetFailed ? " (planilha não confirmada — verifique a integração)" : "";
+      flash(`${c.display_id} ${action === "approve" ? "aprovada" : "recusada"}.${note}`);
     })();
   };
 
@@ -609,17 +606,18 @@ export function ChargesDashboard({
                             >
                               {formatDateOnlyBR(c.due_date)}
                             </div>
-                            {/* Real last-safe approval date (next Tue/Fri cycle − 1 day). */}
+                            {/* Nova data limite: last day to approve and still hit the
+                                projected payment — the day before Data de pagamento.
+                                Hidden when it equals the Vencimento (no extra grace). */}
                             {(() => {
-                              const safe = lastSafeApprovalDate(c.due_date);
-                              const passed = safe < todayYmd;
+                              const novaLimite = dayBefore(paymentSchedule(todayYmd, c.due_date).newPaymentDate);
+                              if (novaLimite === c.due_date) return null;
                               return (
                                 <div
-                                  className={`mt-0.5 text-[10px] ${
-                                    passed ? "font-semibold text-[var(--rejected)]" : "text-[var(--faint)]"
-                                  }`}
+                                  className="mt-0.5 text-[11px] text-[var(--muted)]"
+                                  title="Última data para aprovar e manter o pagamento na data prevista."
                                 >
-                                  seguro até {formatDateOnlyBR(safe)}
+                                  Nova data limite {formatDateOnlyBR(novaLimite)}
                                 </div>
                               );
                             })()}
@@ -628,18 +626,9 @@ export function ChargesDashboard({
                           <span className="text-[var(--muted)]">—</span>
                         )}
                       </td>
-                      <td className="px-2 py-3.5 text-right v-tabular text-xs">
-                        {/* Projected payment date if approved now: max(pay-day after
-                            Vencimento, pay-day after today). Red when overdue. */}
-                        <span
-                          className={
-                            !!c.due_date && c.due_date < todayYmd
-                              ? "font-semibold text-[var(--rejected)]"
-                              : "text-[var(--ink)]"
-                          }
-                        >
-                          {formatDateOnlyBR(paymentSchedule(todayYmd, c.due_date).newPaymentDate)}
-                        </span>
+                      <td className="px-2 py-3.5 text-right v-tabular text-xs text-[var(--ink)]">
+                        {/* Payment date if approved now: max(pay-day after Vencimento, pay-day after today). */}
+                        {formatDateOnlyBR(paymentSchedule(todayYmd, c.due_date).newPaymentDate)}
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-sm font-bold">{fmtMoney(Number(c.amount), c.currency)}</td>
                       <td className="px-5 py-3.5">
@@ -688,58 +677,26 @@ export function ChargesDashboard({
           <div className="overflow-x-auto">
             <table className="w-full" aria-label="Cobranças decididas">
               <tbody>
-                {decidedPager.pageItems.map((c) => {
-                  // Approved charges carry a scheduled payment date (next Tue/Fri
-                  // ≥ 1 day after approval). When it differs from the Vencimento,
-                  // the payment was reprogramado — highlight the row + show it.
-                  const sched =
-                    c.status === "approved" && c.decided_at
-                      ? paymentSchedule(brtYmd(c.decided_at), c.due_date)
-                      : null;
-                  const rescheduled = sched?.rescheduled ?? false;
-                  const overdue = !!c.due_date && c.due_date < todayYmd;
-                  return (
-                    <tr
-                      key={c.id}
-                      className={`border-b border-[var(--line)] last:border-b-0 ${
-                        rescheduled ? "bg-[var(--pending-soft)]" : ""
-                      }`}
-                    >
-                      <td className="w-[80px] px-5 py-3 v-tabular text-xs font-semibold text-[var(--accent)]">{c.display_id}</td>
-                      <td className="px-2 py-3">
-                        <div className="text-sm">{c.supplier_name}</div>
-                        <div className="text-[11px] text-[var(--faint)]">
-                          {c.cost_centers ? `${c.cost_centers.code} — ${c.cost_centers.name}` : c.cost_center_id}
+                {decidedPager.pageItems.map((c) => (
+                  <tr key={c.id} className="border-b border-[var(--line)] last:border-b-0">
+                    <td className="w-[80px] px-5 py-3 v-tabular text-xs font-semibold text-[var(--accent)]">{c.display_id}</td>
+                    <td className="px-2 py-3">
+                      <div className="text-sm">{c.supplier_name}</div>
+                      <div className="text-[11px] text-[var(--faint)]">
+                        {c.cost_centers ? `${c.cost_centers.code} — ${c.cost_centers.name}` : c.cost_center_id}
+                      </div>
+                      {c.decided_at && (
+                        <div className="mt-0.5 v-tabular text-[11px] text-[var(--muted)]">
+                          {c.status === "approved" ? "Aprovada" : "Recusada"} em {brtDateTimeBR(c.decided_at)}
                         </div>
-                        {sched &&
-                          (rescheduled ? (
-                            <div className="mt-1 flex flex-wrap items-center gap-1.5 v-tabular text-[11px]">
-                              <span className="rounded bg-[var(--pending)] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--on-status)]">
-                                Reprogramado
-                              </span>
-                              {c.due_date && (
-                                <span className={`line-through ${overdue ? "text-[var(--rejected)]" : "text-[var(--faint)]"}`}>
-                                  {formatDateOnlyBR(c.due_date)}
-                                </span>
-                              )}
-                              <span className="text-[var(--faint)]">→</span>
-                              <span className={`font-semibold ${overdue ? "text-[var(--rejected)]" : "text-[var(--pending-text-strong)]"}`}>
-                                {formatDateOnlyBR(sched.newPaymentDate)}
-                              </span>
-                            </div>
-                          ) : (
-                            <div className="mt-1 v-tabular text-[11px] text-[var(--muted)]">
-                              Pagamento: {formatDateOnlyBR(sched.newPaymentDate)}
-                            </div>
-                          ))}
-                      </td>
-                      <td className="hidden px-2 py-3 text-right v-tabular text-xs text-[var(--muted)] sm:table-cell">
-                        {fmtMoney(Number(c.amount), c.currency)}
-                      </td>
-                      <td className="px-5 py-3 text-right"><ChargeStatusBadge status={c.status} /></td>
-                    </tr>
-                  );
-                })}
+                      )}
+                    </td>
+                    <td className="hidden px-2 py-3 text-right v-tabular text-xs text-[var(--muted)] sm:table-cell">
+                      {fmtMoney(Number(c.amount), c.currency)}
+                    </td>
+                    <td className="px-5 py-3 text-right"><ChargeStatusBadge status={c.status} /></td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
