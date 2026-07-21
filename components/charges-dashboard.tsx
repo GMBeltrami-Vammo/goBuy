@@ -250,22 +250,42 @@ export function ChargesDashboard({
     window.setTimeout(() => setToast(null), 4500);
   };
 
+  // Decide via the API route (not the RPC directly): the route runs the
+  // Google-Sheet write-back inline on approval and returns its outcome, so a
+  // failed sheet write is visible instead of silently skipped.
+  const decide = async (
+    chargeId: string,
+    action: "approve" | "deny",
+    reason?: string,
+  ): Promise<{ ok: boolean; sheetFailed: boolean }> => {
+    try {
+      const res = await fetch(`/api/charges/${chargeId}/decide`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, reason }),
+      });
+      if (!res.ok) return { ok: false, sheetFailed: false };
+      const body = (await res.json().catch(() => ({}))) as {
+        sheet?: { ok: boolean };
+      };
+      return { ok: true, sheetFailed: action === "approve" && body.sheet?.ok === false };
+    } catch {
+      return { ok: false, sheetFailed: false };
+    }
+  };
+
   const approve = async (c: IncomingCharge) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusyId(c.id);
-    const { error } = await supabaseBrowser(supabaseToken).rpc("decide_incoming_charge", {
-      p_id: c.id,
-      p_action: "approve",
-      p_reason: null,
-    });
+    const { ok, sheetFailed } = await decide(c.id, "approve");
     busyRef.current = false;
     setBusyId(null);
-    if (error) {
+    if (!ok) {
       flash("Não foi possível aprovar. Atualize a página e tente novamente.");
       return;
     }
-    flash(`${c.display_id} aprovada.`);
+    flash(`${c.display_id} aprovada.${sheetFailed ? " (planilha não confirmada — verifique a integração)" : ""}`);
     void load();
   };
 
@@ -273,16 +293,12 @@ export function ChargesDashboard({
     if (!denyTarget || busyRef.current || !denyReason.trim()) return;
     busyRef.current = true;
     setBusyId(denyTarget.id);
-    const { error } = await supabaseBrowser(supabaseToken).rpc("decide_incoming_charge", {
-      p_id: denyTarget.id,
-      p_action: "deny",
-      p_reason: denyReason.trim(),
-    });
+    const id = denyTarget.display_id;
+    const { ok } = await decide(denyTarget.id, "deny", denyReason.trim());
     busyRef.current = false;
     setBusyId(null);
-    const id = denyTarget.display_id;
     setDenyTarget(null);
-    if (error) {
+    if (!ok) {
       flash("Não foi possível recusar. Atualize a página e tente novamente.");
       return;
     }

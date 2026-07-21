@@ -1,9 +1,9 @@
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { isVammoEmail } from "@/lib/auth";
 import { isSameOrigin } from "@/lib/http";
-import { writeChargeToSheet } from "@/lib/sheet-writeback";
+import { writeChargeToSheet, type SheetWriteResult } from "@/lib/sheet-writeback";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
@@ -61,24 +61,25 @@ export async function POST(
   }
 
   // On approval, tell the Google Apps Script to write TRUE back to the source
-  // row. Runs after the response so it never blocks the head's action; the
-  // sheet_written_at stamp guards against a double write.
+  // row. Done inline (awaited) rather than via after(): Vercel can drop after()
+  // work when the function is frozen right after the response, which silently
+  // skipped the write. The sheet_written_at stamp guards against a double write.
+  // The result is returned so a failure is visible (it used to be logs-only).
+  let sheet: SheetWriteResult | undefined;
   if (action === "approve") {
-    after(async () => {
-      const { data: charge } = await supabaseAdmin()
-        .from("incoming_charges")
-        .select("sheet_row, sheet_written_at")
-        .eq("id", id)
-        .maybeSingle();
-      if (charge) {
-        await writeChargeToSheet({
-          id,
-          sheet_row: charge.sheet_row as number | null,
-          sheet_written_at: charge.sheet_written_at as string | null,
-        });
-      }
-    });
+    const { data: charge } = await supabaseAdmin()
+      .from("incoming_charges")
+      .select("sheet_row, sheet_written_at")
+      .eq("id", id)
+      .maybeSingle();
+    if (charge) {
+      sheet = await writeChargeToSheet({
+        id,
+        sheet_row: charge.sheet_row as number | null,
+        sheet_written_at: charge.sheet_written_at as string | null,
+      });
+    }
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, sheet });
 }
