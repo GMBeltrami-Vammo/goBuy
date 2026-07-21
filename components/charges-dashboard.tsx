@@ -85,6 +85,9 @@ export function ChargesDashboard({
   const [selectedCcs, setSelectedCcs] = useState<Set<number>>(new Set());
   const [dueFrom, setDueFrom] = useState("");
   const [dueTo, setDueTo] = useState("");
+  // Per-head Slack notification preference (null = still loading; default off).
+  const [slackOn, setSlackOn] = useState<boolean | null>(null);
+  const [slackBusy, setSlackBusy] = useState(false);
   const queueRef = useRef<HTMLDivElement>(null);
 
   const monthStart = useMemo(() => {
@@ -344,6 +347,38 @@ export function ChargesDashboard({
       return next;
     });
 
+  // Load this head's Slack preference (RLS lets them read their own row).
+  useEffect(() => {
+    if (!hasCenters) return;
+    let cancelled = false;
+    void (async () => {
+      const { data } = await supabaseBrowser(supabaseToken)
+        .from("head_slack_prefs")
+        .select("notifications_enabled")
+        .eq("head_email", email)
+        .maybeSingle();
+      if (!cancelled) {
+        setSlackOn(!!(data as { notifications_enabled?: boolean } | null)?.notifications_enabled);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasCenters, supabaseToken, email]);
+
+  const toggleSlack = async () => {
+    if (slackBusy || slackOn === null) return;
+    const next = !slackOn;
+    setSlackBusy(true);
+    setSlackOn(next); // optimistic
+    const { error } = await supabaseBrowser(supabaseToken).rpc("set_slack_pref", { p_enabled: next });
+    setSlackBusy(false);
+    if (error) {
+      setSlackOn(!next); // revert
+      flash("Não foi possível atualizar a preferência de Slack.");
+    }
+  };
+
   const loading = charges === null;
   // Today's BRT calendar date — a Vencimento before it is overdue.
   const todayYmd = brtYmd(new Date().toISOString());
@@ -357,15 +392,33 @@ export function ChargesDashboard({
             Aprove ou recuse as cobranças dos seus centros de custo.
           </p>
         </div>
-        {pending.length > 0 && (
-          <button
-            onClick={() => queueRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-            title="Ir para a fila de aprovação"
-            className="rounded-full bg-[var(--pending-soft)] px-4 py-1.5 v-tabular text-sm font-bold text-[var(--pending)] transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-          >
-            {pending.length} pendente{pending.length === 1 ? "" : "s"} ↓
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {hasCenters && slackOn !== null && (
+            <button
+              onClick={() => void toggleSlack()}
+              disabled={slackBusy}
+              aria-pressed={slackOn}
+              title="Receber no Slack uma notificação para cada nova cobrança dos seus centros de custo"
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:opacity-60 ${
+                slackOn
+                  ? "border-[var(--approved)] bg-[var(--approved-soft)] text-[var(--approved)]"
+                  : "border-[var(--line-strong)] text-[var(--muted)] hover:bg-[var(--surface-2)]"
+              }`}
+            >
+              <span aria-hidden>{slackOn ? "🔔" : "🔕"}</span>
+              Slack {slackOn ? "ativo" : "desativado"}
+            </button>
+          )}
+          {pending.length > 0 && (
+            <button
+              onClick={() => queueRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              title="Ir para a fila de aprovação"
+              className="rounded-full bg-[var(--pending-soft)] px-4 py-1.5 v-tabular text-sm font-bold text-[var(--pending)] transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
+              {pending.length} pendente{pending.length === 1 ? "" : "s"} ↓
+            </button>
+          )}
+        </div>
       </div>
 
       {toast && (

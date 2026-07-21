@@ -65,6 +65,16 @@ export const brtDateTimeBR = (iso: string): string => {
   return `${g("day")}/${g("month")}/${g("year")} - ${g("hour")}:${g("minute")}`;
 };
 
+/** The hour-of-day (0–23) in São Paulo time — used for the Slack quiet-hours gate. */
+export const brtHour = (iso: string): number => {
+  const h = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/Sao_Paulo",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(iso));
+  return parseInt(h, 10);
+};
+
 // ─── dd/mm/yyyy date-filter helpers (shared by the dashboards) ────────────────
 
 /** Auto-slash mask for dd/mm/yyyy filter inputs. */

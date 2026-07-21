@@ -1,5 +1,7 @@
 import "server-only";
 
+import { formatDateOnlyBR } from "@/lib/format";
+
 export const SLACK_API = "https://slack.com/api";
 const APP_URL = "https://gobuy-gray.vercel.app";
 
@@ -87,6 +89,53 @@ export async function slackPost(endpoint: string, body: object): Promise<{ ok: b
   const json = (await res.json()) as { ok: boolean; error?: string; [k: string]: unknown };
   if (!json.ok) throw new Error(`Slack API error: ${json.error}`);
   return json;
+}
+
+/** GET Web API call (form/query args) — for read methods like users.* that
+ *  don't accept a JSON body. */
+async function slackGet(endpoint: string, params: Record<string, string>): Promise<{ ok: boolean; [k: string]: unknown }> {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(`${SLACK_API}/${endpoint}?${qs}`, {
+    headers: { Authorization: `Bearer ${token()}` },
+  });
+  if (!res.ok) throw new Error(`Slack HTTP ${res.status}`);
+  const json = (await res.json()) as { ok: boolean; error?: string; [k: string]: unknown };
+  if (!json.ok) throw new Error(`Slack API error: ${json.error}`);
+  return json;
+}
+
+/** Resolve a Slack user id from an email (needs the `users:read.email` scope).
+ *  Returns null when the user isn't in the workspace / lookup fails. */
+export async function lookupSlackUserByEmail(email: string): Promise<string | null> {
+  if (!process.env.SLACK_BOT_TOKEN) return null;
+  try {
+    const res = await slackGet("users.lookupByEmail", { email });
+    return (res.user as { id?: string } | undefined)?.id ?? null;
+  } catch (err) {
+    console.error(`[slack] lookupByEmail(${email}) failed:`, err);
+    return null;
+  }
+}
+
+/** Resolve the @vammo email of the Slack user who clicked a button (authz). */
+export async function lookupEmailBySlackUser(userId: string): Promise<string | null> {
+  if (!process.env.SLACK_BOT_TOKEN) return null;
+  try {
+    const res = await slackGet("users.info", { user: userId });
+    const email = (res.user as { profile?: { email?: string } } | undefined)?.profile?.email;
+    return email ? email.toLowerCase() : null;
+  } catch (err) {
+    console.error(`[slack] users.info(${userId}) failed:`, err);
+    return null;
+  }
+}
+
+function money(n: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(n);
+  } catch {
+    return brl(n);
+  }
 }
 
 // ─── Head notification (new request, with approve/reject buttons) ─────────────
@@ -490,6 +539,164 @@ export async function openRejectModal(
           type: "section",
           text: { type: "mrkdwn", text: `Recusando *${displayId}*. Informe o motivo:` },
         },
+        {
+          type: "input",
+          block_id: "reason_block",
+          element: {
+            type: "plain_text_input",
+            action_id: "reason_input",
+            multiline: true,
+            min_length: 5,
+            placeholder: { type: "plain_text", text: "Descreva o motivo da recusa…" },
+          },
+          label: { type: "plain_text", text: "Motivo" },
+        },
+      ],
+    },
+  });
+}
+
+// ─── Charge notification (Cobranças demo — One-Tap approve/deny) ──────────────
+export interface ChargeNotification {
+  chargeId: string; // UUID (button value)
+  displayId: string; // CH-0001
+  supplierName: string;
+  amount: number;
+  currency: string;
+  costCenterLabel: string | null; // "1001 — Marketing"
+  dueDate: string | null; // yyyy-mm-dd (Vencimento)
+  paymentDate: string | null; // yyyy-mm-dd (data de pagamento se aprovar agora)
+}
+
+/**
+ * DM a cost-center head a One-Tap charge notification (summary + Approve/Deny +
+ * link to /cobrancas). Resolves the head's DM by email. Returns the posted
+ * message's {channel, ts} so a later decision can update it; null on failure /
+ * when the head isn't reachable on Slack.
+ */
+export async function notifyChargeHead(
+  headEmail: string,
+  req: ChargeNotification,
+): Promise<{ channel: string; ts: string } | null> {
+  if (!process.env.SLACK_BOT_TOKEN) {
+    console.warn("[slack] SLACK_BOT_TOKEN not configured — skipping");
+    return null;
+  }
+  const userId = await lookupSlackUserByEmail(headEmail);
+  if (!userId) {
+    console.warn(`[slack] no Slack user for ${headEmail} — skipping charge ${req.displayId}`);
+    return null;
+  }
+  const channel = await resolveDmChannel(userId);
+
+  const blocks: object[] = [
+    { type: "header", text: { type: "plain_text", text: `Nova cobrança · ${req.displayId}`, emoji: true } },
+    {
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: `*Fornecedor:*\n${req.supplierName}` },
+        { type: "mrkdwn", text: `*Valor:*\n${money(req.amount, req.currency)}` },
+        { type: "mrkdwn", text: `*Centro de custo:*\n${req.costCenterLabel ?? "—"}` },
+        { type: "mrkdwn", text: `*Vencimento:*\n${req.dueDate ? formatDateOnlyBR(req.dueDate) : "—"}` },
+        { type: "mrkdwn", text: `*Data de pagamento:*\n${req.paymentDate ? formatDateOnlyBR(req.paymentDate) : "—"}` },
+      ],
+    },
+    { type: "divider" },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          style: "primary",
+          text: { type: "plain_text", text: "✅  Aprovar", emoji: true },
+          action_id: "approve_charge",
+          value: req.chargeId,
+          confirm: {
+            title: { type: "plain_text", text: "Confirmar aprovação" },
+            text: { type: "mrkdwn", text: `Aprovar *${req.displayId}* — ${req.supplierName}?` },
+            confirm: { type: "plain_text", text: "Aprovar" },
+            deny: { type: "plain_text", text: "Cancelar" },
+            style: "primary",
+          },
+        },
+        {
+          type: "button",
+          style: "danger",
+          text: { type: "plain_text", text: "❌  Recusar", emoji: true },
+          action_id: "deny_charge",
+          value: req.chargeId,
+        },
+        {
+          type: "button",
+          text: { type: "plain_text", text: "🔗  Ver no goBuy", emoji: true },
+          url: `${APP_URL}/cobrancas`,
+          action_id: "view_details_charge",
+        },
+      ],
+    },
+  ];
+
+  try {
+    const res = await slackPost("chat.postMessage", {
+      channel,
+      text: `Nova cobrança ${req.displayId} — ${req.supplierName} · ${money(req.amount, req.currency)}`,
+      blocks,
+    });
+    return { channel, ts: (res.ts as string | undefined) ?? "" };
+  } catch (err) {
+    console.error("[slack] notifyChargeHead failed:", err);
+    return null;
+  }
+}
+
+/** Update a charge message after a decision (remove buttons, show outcome). */
+export async function updateChargeMessage(
+  channel: string,
+  ts: string,
+  displayId: string,
+  action: "approved" | "denied",
+  actorEmail: string,
+  reason?: string,
+): Promise<void> {
+  if (!process.env.SLACK_BOT_TOKEN || !channel || !ts) return;
+  const label = action === "approved" ? "Aprovada ✅" : "Recusada ❌";
+  const blocks: object[] = [
+    { type: "header", text: { type: "plain_text", text: `${label} · ${displayId}`, emoji: true } },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `${action === "approved" ? "Aprovada" : "Recusada"} por *${actorEmail}*${reason ? `\nMotivo: _${reason}_` : ""}`,
+      },
+    },
+  ];
+  try {
+    await slackPost("chat.update", { channel, ts, blocks, text: `${label} · ${displayId}` });
+  } catch (err) {
+    console.error("[slack] updateChargeMessage failed:", err);
+  }
+}
+
+/** Open the deny-reason modal for a charge (mirrors the in-app deny). */
+export async function openChargeRejectModal(
+  triggerId: string,
+  chargeId: string,
+  displayId: string,
+  channel: string,
+  messageTsToUpdate: string,
+): Promise<void> {
+  if (!process.env.SLACK_BOT_TOKEN) return;
+  await slackPost("views.open", {
+    trigger_id: triggerId,
+    view: {
+      type: "modal",
+      callback_id: "reject_charge_modal",
+      private_metadata: JSON.stringify({ chargeId, displayId, channel, messageTsToUpdate }),
+      title: { type: "plain_text", text: "Recusar cobrança" },
+      submit: { type: "plain_text", text: "Confirmar recusa" },
+      close: { type: "plain_text", text: "Cancelar" },
+      blocks: [
+        { type: "section", text: { type: "mrkdwn", text: `Recusando *${displayId}*. Informe o motivo:` } },
         {
           type: "input",
           block_id: "reason_block",

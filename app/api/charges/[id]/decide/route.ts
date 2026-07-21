@@ -2,9 +2,8 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { isVammoEmail } from "@/lib/auth";
+import { applyChargeDecision } from "@/lib/charge-decide";
 import { isSameOrigin } from "@/lib/http";
-import { writeChargeToSheet, type SheetWriteResult } from "@/lib/sheet-writeback";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
 export const runtime = "nodejs";
@@ -44,44 +43,21 @@ export async function POST(
     return NextResponse.json({ error: "Informe o motivo da recusa." }, { status: 400 });
   }
 
-  // RPC with the user JWT — RLS + is_head_of enforce head-of-cost-center authorization.
+  // RPC (is_head_of enforced) + sheet write-back via the shared canonical path.
   const supabase = supabaseBrowser(session.supabaseToken ?? "");
-  const { error } = await supabase.rpc("decide_incoming_charge", {
-    p_id: id,
-    p_action: action,
-    p_reason: action === "deny" ? reason!.trim() : null,
-  });
+  const { error, sheet } = await applyChargeDecision(
+    supabase,
+    id,
+    action,
+    action === "deny" ? reason!.trim() : null,
+  );
 
   if (error) {
-    console.error("[charges/decide] rpc failed:", error.message);
+    console.error("[charges/decide] decision failed:", error);
     return NextResponse.json(
       { error: "Não foi possível processar a decisão. Atualize a página e tente novamente." },
       { status: 400 },
     );
-  }
-
-  // Write the decision back to the source sheet row (approve → TRUE + payment
-  // date; deny → "Recusada" + on-time payment date). Done inline (awaited)
-  // rather than via after(): Vercel can drop after() work when the function is
-  // frozen right after the response, which silently skipped the write. The
-  // sheet_written_at stamp guards against a double write. The result is returned
-  // so a failure is visible (it used to be logs-only).
-  let sheet: SheetWriteResult | undefined;
-  const { data: charge } = await supabaseAdmin()
-    .from("incoming_charges")
-    .select("sheet_row, sheet_written_at, created_at, decided_at, due_date")
-    .eq("id", id)
-    .maybeSingle();
-  if (charge) {
-    sheet = await writeChargeToSheet({
-      id,
-      sheet_row: charge.sheet_row as number | null,
-      sheet_written_at: charge.sheet_written_at as string | null,
-      created_at: charge.created_at as string | null,
-      decided_at: charge.decided_at as string | null,
-      due_date: charge.due_date as string | null,
-      action,
-    });
   }
 
   return NextResponse.json({ ok: true, sheet });

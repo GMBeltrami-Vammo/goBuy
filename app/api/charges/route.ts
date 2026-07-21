@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 
+import { notifyChargeIngested } from "@/lib/charge-notify";
 import { parseBRLDecimal, parseDMY } from "@/lib/format";
 import { parseRateio } from "@/lib/rateio";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -171,6 +172,14 @@ export async function POST(request: Request) {
 
   if (!created) {
     return NextResponse.json({ skipped: true, reason: "duplicate row" }, { status: 200 });
+  }
+
+  // Notify opted-in heads on Slack (quiet-hours aware). Best-effort: a failure
+  // here never fails the ingest — the charge is already saved.
+  try {
+    await notifyChargeIngested(created.id);
+  } catch (err) {
+    console.error("[api/charges] notification failed:", err);
   }
 
   return NextResponse.json(created, { status: 201 });

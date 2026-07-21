@@ -2,13 +2,17 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { after, NextResponse } from "next/server";
 
+import { applyChargeDecision } from "@/lib/charge-decide";
 import {
   SLACK_USER_EMAIL,
   RenewalNotification,
+  lookupEmailBySlackUser,
   notifyHead,
   notifyRequester,
   notifyRequesterRenewal,
+  openChargeRejectModal,
   openRejectModal,
+  updateChargeMessage,
   updateHeadMessage,
   updateRenewalMessage,
 } from "@/lib/slack";
@@ -58,6 +62,17 @@ async function getRequest(id: string): Promise<RequestRow | null> {
     .eq("id", id)
     .maybeSingle();
   return (data as RequestRow | null) ?? null;
+}
+
+async function getCharge(
+  id: string,
+): Promise<{ id: string; display_id: string; status: string } | null> {
+  const { data } = await supabaseAdmin()
+    .from("incoming_charges")
+    .select("id, display_id, status")
+    .eq("id", id)
+    .maybeSingle();
+  return (data as { id: string; display_id: string; status: string } | null) ?? null;
 }
 
 /**
@@ -191,7 +206,13 @@ export async function POST(request: Request) {
   const type = payload.type as string | undefined;
   const user = payload.user as { id?: string } | undefined;
   const slackUserId = user?.id;
-  const actorEmail = slackUserId ? SLACK_USER_EMAIL[slackUserId] : undefined;
+  // Resolve the clicker's @vammo email: the test-mode map first, else a live
+  // Slack lookup (users.info → profile.email). The RPC still enforces is_head_of.
+  let resolvedEmail = slackUserId ? SLACK_USER_EMAIL[slackUserId] : undefined;
+  if (!resolvedEmail && slackUserId) {
+    resolvedEmail = (await lookupEmailBySlackUser(slackUserId)) ?? undefined;
+  }
+  const actorEmail = resolvedEmail;
 
   // ── Block action: button click ──────────────────────────────────────────────
   if (type === "block_actions") {
@@ -335,6 +356,44 @@ export async function POST(request: Request) {
       return new NextResponse(null, { status: 200 });
     }
 
+    // ── Charge (Cobranças demo) decisions ─────────────────────────────────────
+    if (action.action_id === "approve_charge") {
+      after(async () => {
+        try {
+          const charge = await getCharge(requestId);
+          if (!charge) return;
+          const { error } = await applyChargeDecision(
+            supabaseBrowser(await mintSupabaseToken(actorEmail)),
+            requestId,
+            "approve",
+            null,
+          );
+          if (error) {
+            console.error("[slack/interact] approve_charge rejected:", error);
+            return;
+          }
+          await updateChargeMessage(channelId, messageTs, charge.display_id, "approved", actorEmail);
+        } catch (err) {
+          console.error("[slack/interact] approve_charge failed:", err);
+        }
+      });
+      return new NextResponse(null, { status: 200 });
+    }
+
+    if (action.action_id === "deny_charge") {
+      const triggerId = payload.trigger_id as string | undefined;
+      const charge = await getCharge(requestId);
+      if (!charge || charge.status !== "pending" || !triggerId) {
+        return new NextResponse(null, { status: 200 });
+      }
+      try {
+        await openChargeRejectModal(triggerId, requestId, charge.display_id, channelId, messageTs);
+      } catch (err) {
+        console.error("[slack/interact] openChargeRejectModal failed:", err);
+      }
+      return new NextResponse(null, { status: 200 });
+    }
+
     return new NextResponse(null, { status: 200 });
   }
 
@@ -345,6 +404,57 @@ export async function POST(request: Request) {
       private_metadata?: string;
       state?: { values?: Record<string, Record<string, { value?: string }>> };
     } | undefined;
+
+    // Charge (Cobranças) deny modal — mirrors reject_modal but decides a charge.
+    if (view?.callback_id === "reject_charge_modal") {
+      if (!actorEmail) return new NextResponse(null, { status: 200 });
+      let cmeta: { chargeId: string; displayId: string; channel: string; messageTsToUpdate: string };
+      try {
+        cmeta = JSON.parse(view.private_metadata ?? "{}");
+      } catch {
+        return NextResponse.json({
+          response_action: "errors",
+          errors: { reason_block: "Erro interno. Tente novamente pelo app." },
+        });
+      }
+      if (!UUID_RE.test(cmeta.chargeId ?? "")) {
+        return new NextResponse(null, { status: 200 });
+      }
+      const creason = view.state?.values?.["reason_block"]?.["reason_input"]?.value?.trim() ?? "";
+      if (creason.length < 5) {
+        return NextResponse.json({
+          response_action: "errors",
+          errors: { reason_block: "Informe um motivo com pelo menos 5 caracteres." },
+        });
+      }
+      after(async () => {
+        try {
+          const charge = await getCharge(cmeta.chargeId);
+          if (!charge) return;
+          const { error } = await applyChargeDecision(
+            supabaseBrowser(await mintSupabaseToken(actorEmail)),
+            cmeta.chargeId,
+            "deny",
+            creason,
+          );
+          if (error) {
+            console.error("[slack/interact] deny_charge rejected:", error);
+            return;
+          }
+          await updateChargeMessage(
+            cmeta.channel,
+            cmeta.messageTsToUpdate,
+            cmeta.displayId,
+            "denied",
+            actorEmail,
+            creason,
+          );
+        } catch (err) {
+          console.error("[slack/interact] deny_charge submit failed:", err);
+        }
+      });
+      return NextResponse.json({ response_action: "clear" });
+    }
 
     if (!view || view.callback_id !== "reject_modal") {
       return new NextResponse(null, { status: 200 });
