@@ -69,7 +69,7 @@ export async function POST(
   let sheet: SheetWriteResult | undefined;
   const { data: charge } = await supabaseAdmin()
     .from("incoming_charges")
-    .select("sheet_row, sheet_written_at, decided_at, due_date")
+    .select("sheet_row, sheet_written_at, created_at, decided_at, due_date")
     .eq("id", id)
     .maybeSingle();
   if (charge) {
@@ -77,6 +77,7 @@ export async function POST(
       id,
       sheet_row: charge.sheet_row as number | null,
       sheet_written_at: charge.sheet_written_at as string | null,
+      created_at: charge.created_at as string | null,
       decided_at: charge.decided_at as string | null,
       due_date: charge.due_date as string | null,
       action,

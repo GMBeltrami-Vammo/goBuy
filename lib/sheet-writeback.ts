@@ -1,7 +1,7 @@
 import "server-only";
 
-import { brtStamp, brtYmd, formatDateOnlyBR } from "@/lib/format";
-import { headApprovalTimeString, nextPaymentDate, paymentSchedule } from "@/lib/payment-schedule";
+import { brtYmd, formatDateOnlyBR } from "@/lib/format";
+import { headApprovalTimeString, paymentSchedule } from "@/lib/payment-schedule";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 // Google Apps Script that writes TRUE back to the source spreadsheet row on
@@ -21,11 +21,11 @@ export type SheetWriteResult =
  * incoming_charges.sheet_written_at so it isn't written twice. Idempotent and
  * safe to retry: no-ops when already written or when there's no source row.
  *
- * On approval: head_approval_time carries the reprogramming narrative and
- * payment_date is the effective (rescheduled) payment date. On refusal:
- * head_approval_time is a "Recusada" stamp and payment_date is the on-time
- * (within-due-time) payment date — nextPaymentDate(vencimento), reprogrammed to
- * the next Tue/Fri — matching what an on-time approval would have paid.
+ * On approval: payment_date is the effective (reprogrammed) date computed from
+ * the approval time, and head_approval_time carries the timestamped reprogram
+ * narrative. On refusal: head_approval_time is simply "Recusada" and payment_date
+ * is fixed at ingest — the data de pagamento as of when the charge arrived via
+ * the API (created_at), not recomputed at decision time.
  *
  * Apps Script always returns HTTP 200 (after a 302 redirect), with the real
  * outcome in the JSON body ({status:"error", …} on a rejected/failed write), so
@@ -35,6 +35,7 @@ export async function writeChargeToSheet(charge: {
   id: string;
   sheet_row: number | null;
   sheet_written_at: string | null;
+  created_at: string | null;
   decided_at: string | null;
   due_date: string | null;
   action: "approve" | "deny";
@@ -48,20 +49,20 @@ export async function writeChargeToSheet(charge: {
     return { ok: false, reason: "no_key" };
   }
 
-  // Decision time is the charge's decided_at (falling back to now), in BRT.
-  const approvalIso = charge.decided_at ?? new Date().toISOString();
-  let head_approval_time: string;
   let payment_date: string;
+  let head_approval_time: string;
   if (charge.action === "deny") {
-    // On refusal, record the on-time payment date (as if approved within due
-    // time) — the payday after the Vencimento, reprogrammed to Tue/Fri.
-    const onTime = nextPaymentDate(charge.due_date ?? brtYmd(approvalIso));
-    head_approval_time = `${brtStamp(approvalIso)} - Recusada.`;
-    payment_date = formatDateOnlyBR(onTime);
+    // Refusal: message is just "Recusada"; payment date fixed at ingest — the
+    // first data de pagamento, computed from the charge's arrival (created_at).
+    const ingestIso = charge.created_at ?? charge.decided_at ?? new Date().toISOString();
+    payment_date = formatDateOnlyBR(paymentSchedule(brtYmd(ingestIso), charge.due_date).newPaymentDate);
+    head_approval_time = "Recusada";
   } else {
+    // Approval: payment date + reprogram narrative from the approval time.
+    const approvalIso = charge.decided_at ?? new Date().toISOString();
     const { newPaymentDate, rescheduled } = paymentSchedule(brtYmd(approvalIso), charge.due_date);
-    head_approval_time = headApprovalTimeString(approvalIso, charge.due_date, newPaymentDate, rescheduled);
     payment_date = formatDateOnlyBR(newPaymentDate); // DD/MM/YYYY
+    head_approval_time = headApprovalTimeString(approvalIso, charge.due_date, newPaymentDate, rescheduled);
   }
 
   try {
