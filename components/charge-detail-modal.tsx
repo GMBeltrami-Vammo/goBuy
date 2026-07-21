@@ -44,7 +44,7 @@ export function ChargeDetailModal({
   charges,
   codeToId,
   monthStart,
-  busyId,
+  busyIds,
   onApprove,
   onDeny,
   onClose,
@@ -54,7 +54,7 @@ export function ChargeDetailModal({
   charges: IncomingCharge[];
   codeToId: Map<string, number>;
   monthStart: string;
-  busyId: string | null;
+  busyIds: Set<string>;
   onApprove: (c: IncomingCharge) => void;
   onDeny: (c: IncomingCharge) => void;
   onClose: () => void;
@@ -233,14 +233,14 @@ export function ChargeDetailModal({
                       <div className="flex gap-2">
                         <button
                           onClick={() => onApprove(c)}
-                          disabled={busyId === c.id}
+                          disabled={busyIds.has(c.id)}
                           className="rounded-lg bg-[var(--approved)] px-3 py-1 text-xs font-bold text-[var(--on-status)] transition hover:opacity-90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                         >
-                          {busyId === c.id ? "…" : "Aprovar"}
+                          {busyIds.has(c.id) ? "…" : "Aprovar"}
                         </button>
                         <button
                           onClick={() => onDeny(c)}
-                          disabled={busyId === c.id}
+                          disabled={busyIds.has(c.id)}
                           className="rounded-lg border border-[var(--rejected)] px-3 py-1 text-xs font-bold text-[var(--rejected)] transition hover:bg-[var(--rejected-soft)] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                         >
                           Recusar

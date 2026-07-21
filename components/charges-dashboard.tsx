@@ -75,7 +75,9 @@ export function ChargesDashboard({
   const [centers, setCenters] = useState<CostCenter[]>([]);
   const [budgets, setBudgets] = useState<CostCenterBudget[]>([]);
   const [toast, setToast] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  // Per-row in-flight ids (not a single global lock) so decisions on different
+  // rows can run concurrently and never block each other.
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [denyTarget, setDenyTarget] = useState<IncomingCharge | null>(null);
   const [denyReason, setDenyReason] = useState("");
   const [viewMode, setViewMode] = useState<"pizza" | "barra">("pizza");
@@ -83,7 +85,6 @@ export function ChargesDashboard({
   const [selectedCcs, setSelectedCcs] = useState<Set<number>>(new Set());
   const [dueFrom, setDueFrom] = useState("");
   const [dueTo, setDueTo] = useState("");
-  const busyRef = useRef(false);
   const queueRef = useRef<HTMLDivElement>(null);
 
   const monthStart = useMemo(() => {
@@ -275,36 +276,62 @@ export function ChargesDashboard({
     }
   };
 
-  const approve = async (c: IncomingCharge) => {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setBusyId(c.id);
-    const { ok, sheetFailed } = await decide(c.id, "approve");
-    busyRef.current = false;
-    setBusyId(null);
-    if (!ok) {
-      flash("Não foi possível aprovar. Atualize a página e tente novamente.");
-      return;
-    }
-    flash(`${c.display_id} aprovada.${sheetFailed ? " (planilha não confirmada — verifique a integração)" : ""}`);
-    void load();
+  // Optimistic decision: update the UI instantly (the charge moves to Decididas
+  // right away) and run the server call — including the Sheet write-back — in
+  // the background. On failure we roll the row back to its prior state. This
+  // keeps the queue responsive: you can approve the next charge immediately,
+  // without waiting for the previous webhook round-trip.
+  const decideOptimistic = (c: IncomingCharge, action: "approve" | "deny", reason?: string) => {
+    if (busyIds.has(c.id)) return;
+    const snapshot = c;
+    setBusyIds((prev) => new Set(prev).add(c.id));
+    setCharges((prev) =>
+      prev?.map((x) =>
+        x.id === c.id
+          ? {
+              ...x,
+              status: action === "approve" ? "approved" : "denied",
+              decided_at: new Date().toISOString(),
+              decided_by_email: email,
+              decision_reason: action === "deny" ? (reason ?? null) : null,
+            }
+          : x,
+      ) ?? prev,
+    );
+
+    void (async () => {
+      const { ok, sheetFailed } = await decide(c.id, action, reason);
+      setBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(c.id);
+        return next;
+      });
+      if (!ok) {
+        // Roll the row back to exactly what it was.
+        setCharges((prev) => prev?.map((x) => (x.id === c.id ? snapshot : x)) ?? prev);
+        flash(
+          action === "approve"
+            ? `Não foi possível aprovar ${c.display_id}. Tente novamente.`
+            : `Não foi possível recusar ${c.display_id}. Tente novamente.`,
+        );
+        return;
+      }
+      flash(
+        action === "approve"
+          ? `${c.display_id} aprovada.${sheetFailed ? " (planilha não confirmada — verifique a integração)" : ""}`
+          : `${c.display_id} recusada.`,
+      );
+    })();
   };
 
-  const confirmDeny = async () => {
-    if (!denyTarget || busyRef.current || !denyReason.trim()) return;
-    busyRef.current = true;
-    setBusyId(denyTarget.id);
-    const id = denyTarget.display_id;
-    const { ok } = await decide(denyTarget.id, "deny", denyReason.trim());
-    busyRef.current = false;
-    setBusyId(null);
-    setDenyTarget(null);
-    if (!ok) {
-      flash("Não foi possível recusar. Atualize a página e tente novamente.");
-      return;
-    }
-    flash(`${id} recusada.`);
-    void load();
+  const approve = (c: IncomingCharge) => decideOptimistic(c, "approve");
+
+  const confirmDeny = () => {
+    if (!denyTarget || !denyReason.trim()) return;
+    const target = denyTarget;
+    const reason = denyReason.trim();
+    setDenyTarget(null); // close the dialog immediately; the write runs in the background
+    decideOptimistic(target, "deny", reason);
   };
 
   const requestDeny = (c: IncomingCharge) => {
@@ -321,6 +348,8 @@ export function ChargesDashboard({
     });
 
   const loading = charges === null;
+  // Today's BRT calendar date — a Vencimento before it is overdue.
+  const todayYmd = brtYmd(new Date().toISOString());
 
   return (
     <div>
@@ -566,22 +595,34 @@ export function ChargesDashboard({
                         </div>
                         {c.pix_key && <div className="mt-0.5 text-[11px] text-[var(--muted)]">Pix: {c.pix_key}</div>}
                       </td>
-                      <td className="px-2 py-3.5 text-right v-tabular text-xs text-[var(--muted)]">
-                        {c.due_date ? formatDateOnlyBR(c.due_date) : "—"}
+                      <td className="px-2 py-3.5 text-right v-tabular text-xs">
+                        {c.due_date ? (
+                          <span
+                            className={
+                              c.due_date < todayYmd
+                                ? "text-[var(--rejected)] line-through"
+                                : "text-[var(--muted)]"
+                            }
+                          >
+                            {formatDateOnlyBR(c.due_date)}
+                          </span>
+                        ) : (
+                          <span className="text-[var(--muted)]">—</span>
+                        )}
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-sm font-bold">{fmtMoney(Number(c.amount), c.currency)}</td>
                       <td className="px-5 py-3.5">
                         <div className="flex justify-end gap-2">
                           <button
                             onClick={() => void approve(c)}
-                            disabled={busyId === c.id}
+                            disabled={busyIds.has(c.id)}
                             className="rounded-lg bg-[var(--approved)] px-3 py-1.5 text-xs font-bold text-[var(--on-status)] transition hover:opacity-90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                           >
-                            {busyId === c.id ? "…" : "Aprovar"}
+                            {busyIds.has(c.id) ? "…" : "Aprovar"}
                           </button>
                           <button
                             onClick={() => requestDeny(c)}
-                            disabled={busyId === c.id}
+                            disabled={busyIds.has(c.id)}
                             className="rounded-lg border border-[var(--rejected)] px-3 py-1.5 text-xs font-bold text-[var(--rejected)] transition hover:bg-[var(--rejected-soft)] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                           >
                             Recusar
@@ -625,6 +666,7 @@ export function ChargesDashboard({
                       ? paymentSchedule(brtYmd(c.decided_at), c.due_date)
                       : null;
                   const rescheduled = sched?.rescheduled ?? false;
+                  const overdue = !!c.due_date && c.due_date < todayYmd;
                   return (
                     <tr
                       key={c.id}
@@ -640,12 +682,19 @@ export function ChargesDashboard({
                         </div>
                         {sched &&
                           (rescheduled ? (
-                            <div className="mt-1 flex flex-wrap items-center gap-1.5 v-tabular text-[11px] font-medium text-[var(--pending-text-strong)]">
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5 v-tabular text-[11px]">
                               <span className="rounded bg-[var(--pending)] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--on-status)]">
                                 Reprogramado
                               </span>
-                              {c.due_date ? `${formatDateOnlyBR(c.due_date)} → ` : ""}
-                              {formatDateOnlyBR(sched.newPaymentDate)}
+                              {c.due_date && (
+                                <span className={`line-through ${overdue ? "text-[var(--rejected)]" : "text-[var(--faint)]"}`}>
+                                  {formatDateOnlyBR(c.due_date)}
+                                </span>
+                              )}
+                              <span className="text-[var(--faint)]">→</span>
+                              <span className={`font-semibold ${overdue ? "text-[var(--rejected)]" : "text-[var(--pending-text-strong)]"}`}>
+                                {formatDateOnlyBR(sched.newPaymentDate)}
+                              </span>
                             </div>
                           ) : (
                             <div className="mt-1 v-tabular text-[11px] text-[var(--muted)]">
@@ -681,7 +730,7 @@ export function ChargesDashboard({
           charges={charges ?? []}
           codeToId={codeToId}
           monthStart={selectedMonth}
-          busyId={busyId}
+          busyIds={busyIds}
           onApprove={approve}
           onDeny={requestDeny}
           onClose={() => setDetailCc(null)}
@@ -694,7 +743,7 @@ export function ChargesDashboard({
           message={`${denyTarget.supplier_name} — ${fmtMoney(Number(denyTarget.amount), denyTarget.currency)}. Informe o motivo da recusa.`}
           confirmLabel="Recusar cobrança"
           tone="danger"
-          busy={busyId === denyTarget.id}
+          busy={busyIds.has(denyTarget.id)}
           onConfirm={() => void confirmDeny()}
           onCancel={() => setDenyTarget(null)}
         >
