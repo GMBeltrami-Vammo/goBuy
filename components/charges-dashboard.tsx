@@ -9,7 +9,7 @@ import { Pagination, usePagination } from "@/components/pagination";
 import { RateioLine } from "@/components/rateio-line";
 import { chargeContributions } from "@/lib/rateio";
 import { brtYmd, formatBRL, formatDateOnlyBR, isInvalidDMY, maskDMY, parseDMY } from "@/lib/format";
-import { paymentSchedule } from "@/lib/payment-schedule";
+import { lastSafeApprovalDate, paymentSchedule } from "@/lib/payment-schedule";
 import { formatAmount } from "@/lib/payment";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { CostCenter, CostCenterBudget, IncomingCharge } from "@/lib/types";
@@ -598,15 +598,32 @@ export function ChargesDashboard({
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-xs">
                         {c.due_date ? (
-                          <span
-                            className={
-                              c.due_date < todayYmd
-                                ? "text-[var(--rejected)] line-through"
-                                : "text-[var(--muted)]"
-                            }
-                          >
-                            {formatDateOnlyBR(c.due_date)}
-                          </span>
+                          <>
+                            {/* Nominal Vencimento — kept on record, red-struck once overdue. */}
+                            <div
+                              className={
+                                c.due_date < todayYmd
+                                  ? "text-[var(--rejected)] line-through"
+                                  : "text-[var(--muted)]"
+                              }
+                            >
+                              {formatDateOnlyBR(c.due_date)}
+                            </div>
+                            {/* Real last-safe approval date (next Tue/Fri cycle − 1 day). */}
+                            {(() => {
+                              const safe = lastSafeApprovalDate(c.due_date);
+                              const passed = safe < todayYmd;
+                              return (
+                                <div
+                                  className={`mt-0.5 text-[10px] ${
+                                    passed ? "font-semibold text-[var(--rejected)]" : "text-[var(--faint)]"
+                                  }`}
+                                >
+                                  seguro até {formatDateOnlyBR(safe)}
+                                </div>
+                              );
+                            })()}
+                          </>
                         ) : (
                           <span className="text-[var(--muted)]">—</span>
                         )}
