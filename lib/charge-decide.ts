@@ -1,6 +1,7 @@
 import "server-only";
 
 import { writeChargeToSheet, type SheetWriteResult } from "@/lib/sheet-writeback";
+import { updateChargeMessage } from "@/lib/slack";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { supabaseBrowser } from "@/lib/supabase/client";
 
@@ -14,13 +15,15 @@ export interface ChargeDecisionResult {
  * the single canonical path shared by the web route (session token) and the
  * Slack interaction handler (minted token). The RPC enforces is_head_of() +
  * the pending guard atomically; the write-back reflects the decision on the
- * source sheet. Pass an authenticated client whose JWT is the acting head's.
+ * source sheet. Pass an authenticated client whose JWT is the acting head's,
+ * and the acting head's email (for the Slack message reconciliation below).
  */
 export async function applyChargeDecision(
   supabase: ReturnType<typeof supabaseBrowser>,
   chargeId: string,
   action: "approve" | "deny",
   reason: string | null,
+  actorEmail: string,
 ): Promise<ChargeDecisionResult> {
   const { error } = await supabase.rpc("decide_incoming_charge", {
     p_id: chargeId,
@@ -29,9 +32,10 @@ export async function applyChargeDecision(
   });
   if (error) return { error: error.message };
 
-  const { data: charge } = await supabaseAdmin()
+  const admin = supabaseAdmin();
+  const { data: charge } = await admin
     .from("incoming_charges")
-    .select("sheet_row, sheet_written_at, created_at, decided_at, due_date")
+    .select("display_id, sheet_row, sheet_written_at, created_at, decided_at, due_date")
     .eq("id", chargeId)
     .maybeSingle();
 
@@ -47,5 +51,33 @@ export async function applyChargeDecision(
       action,
     });
   }
+
+  // Reconcile every Slack DM sent for this charge (all co-heads): remove the
+  // live Approve/Deny buttons and show the outcome — whether the decision came
+  // from the web app or another head's Slack tap. Best-effort; never fails the
+  // decision.
+  try {
+    const displayId = (charge as { display_id?: string } | null)?.display_id ?? chargeId;
+    const { data: msgs } = await admin
+      .from("charge_notification_queue")
+      .select("slack_channel, slack_ts")
+      .eq("charge_id", chargeId)
+      .eq("status", "sent");
+    for (const m of (msgs ?? []) as { slack_channel: string | null; slack_ts: string | null }[]) {
+      if (m.slack_channel && m.slack_ts) {
+        await updateChargeMessage(
+          m.slack_channel,
+          m.slack_ts,
+          displayId,
+          action === "approve" ? "approved" : "denied",
+          actorEmail,
+          reason ?? undefined,
+        );
+      }
+    }
+  } catch (err) {
+    console.error("[charge-decide] Slack reconcile failed:", err);
+  }
+
   return { error: null, sheet };
 }

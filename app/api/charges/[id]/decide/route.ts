@@ -50,6 +50,7 @@ export async function POST(
     id,
     action,
     action === "deny" ? reason!.trim() : null,
+    session.user.email,
   );
 
   if (error) {

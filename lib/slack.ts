@@ -134,8 +134,16 @@ function money(n: number, currency: string): string {
   try {
     return new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(n);
   } catch {
-    return brl(n);
+    // Non-ISO code (e.g. free-text "PESO") — mirror the dashboard's fallback
+    // instead of mislabeling it as R$.
+    return `${currency} ${n.toFixed(2)}`;
   }
+}
+
+/** Escape Slack mrkdwn control chars in untrusted free text (supplier names,
+ *  etc.) so a charge source can't inject links/markup into a bot DM. */
+function escapeMrkdwn(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 // ─── Head notification (new request, with approve/reject buttons) ─────────────
@@ -566,13 +574,15 @@ export interface ChargeNotification {
   costCenterLabel: string | null; // "1001 — Marketing"
   dueDate: string | null; // yyyy-mm-dd (Vencimento)
   paymentDate: string | null; // yyyy-mm-dd (data de pagamento se aprovar agora)
+  /** Rateio breakdown when the charge splits across cost centers. */
+  rateio?: Array<{ code: string; label: string; pct: number; amount: number | null }>;
 }
 
 /**
  * DM a cost-center head a One-Tap charge notification (summary + Approve/Deny +
  * link to /cobrancas). Resolves the head's DM by email. Returns the posted
  * message's {channel, ts} so a later decision can update it; null on failure /
- * when the head isn't reachable on Slack.
+ * when the head isn't reachable on Slack. Never throws.
  */
 export async function notifyChargeHead(
   headEmail: string,
@@ -587,59 +597,79 @@ export async function notifyChargeHead(
     console.warn(`[slack] no Slack user for ${headEmail} — skipping charge ${req.displayId}`);
     return null;
   }
-  const channel = await resolveDmChannel(userId);
+
+  const supplier = escapeMrkdwn(req.supplierName);
+  const ccLabel = req.costCenterLabel ? escapeMrkdwn(req.costCenterLabel) : "—";
+  const isRateio = (req.rateio?.length ?? 0) > 1;
 
   const blocks: object[] = [
     { type: "header", text: { type: "plain_text", text: `Nova cobrança · ${req.displayId}`, emoji: true } },
     {
       type: "section",
       fields: [
-        { type: "mrkdwn", text: `*Fornecedor:*\n${req.supplierName}` },
+        { type: "mrkdwn", text: `*Fornecedor:*\n${supplier}` },
         { type: "mrkdwn", text: `*Valor:*\n${money(req.amount, req.currency)}` },
-        { type: "mrkdwn", text: `*Centro de custo:*\n${req.costCenterLabel ?? "—"}` },
+        isRateio
+          ? { type: "mrkdwn", text: `*Rateio:*\n${req.rateio!.length} centros de custo` }
+          : { type: "mrkdwn", text: `*Centro de custo:*\n${ccLabel}` },
         { type: "mrkdwn", text: `*Vencimento:*\n${req.dueDate ? formatDateOnlyBR(req.dueDate) : "—"}` },
         { type: "mrkdwn", text: `*Data de pagamento:*\n${req.paymentDate ? formatDateOnlyBR(req.paymentDate) : "—"}` },
       ],
     },
-    { type: "divider" },
-    {
-      type: "actions",
-      elements: [
-        {
-          type: "button",
-          style: "primary",
-          text: { type: "plain_text", text: "✅  Aprovar", emoji: true },
-          action_id: "approve_charge",
-          value: req.chargeId,
-          confirm: {
-            title: { type: "plain_text", text: "Confirmar aprovação" },
-            text: { type: "mrkdwn", text: `Aprovar *${req.displayId}* — ${req.supplierName}?` },
-            confirm: { type: "plain_text", text: "Aprovar" },
-            deny: { type: "plain_text", text: "Cancelar" },
-            style: "primary",
-          },
-        },
-        {
-          type: "button",
-          style: "danger",
-          text: { type: "plain_text", text: "❌  Recusar", emoji: true },
-          action_id: "deny_charge",
-          value: req.chargeId,
-        },
-        {
-          type: "button",
-          text: { type: "plain_text", text: "🔗  Ver no goBuy", emoji: true },
-          url: `${APP_URL}/cobrancas`,
-          action_id: "view_details_charge",
-        },
-      ],
-    },
   ];
 
+  if (isRateio) {
+    const bullets = req.rateio!
+      .map(
+        (r) =>
+          `• ${escapeMrkdwn(r.code)} — ${escapeMrkdwn(r.label)} · *${r.pct}%*` +
+          (r.amount != null ? ` · ${money(r.amount, req.currency)}` : ""),
+      )
+      .join("\n");
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: bullets } });
+  }
+
+  blocks.push({ type: "divider" });
+  blocks.push({
+    type: "actions",
+    elements: [
+      {
+        type: "button",
+        style: "primary",
+        text: { type: "plain_text", text: "✅  Aprovar", emoji: true },
+        action_id: "approve_charge",
+        value: req.chargeId,
+        confirm: {
+          title: { type: "plain_text", text: "Confirmar aprovação" },
+          text: { type: "mrkdwn", text: `Aprovar *${req.displayId}* — ${supplier}?` },
+          confirm: { type: "plain_text", text: "Aprovar" },
+          deny: { type: "plain_text", text: "Cancelar" },
+          style: "primary",
+        },
+      },
+      {
+        type: "button",
+        style: "danger",
+        text: { type: "plain_text", text: "❌  Recusar", emoji: true },
+        action_id: "deny_charge",
+        value: req.chargeId,
+      },
+      {
+        type: "button",
+        text: { type: "plain_text", text: "🔗  Ver no goBuy", emoji: true },
+        url: `${APP_URL}/cobrancas`,
+        action_id: "view_details_charge",
+      },
+    ],
+  });
+
   try {
+    // resolveDmChannel (conversations.open) can throw — keep it inside the catch
+    // so this function honors its "null on failure, never throws" contract.
+    const channel = await resolveDmChannel(userId);
     const res = await slackPost("chat.postMessage", {
       channel,
-      text: `Nova cobrança ${req.displayId} — ${req.supplierName} · ${money(req.amount, req.currency)}`,
+      text: `Nova cobrança ${req.displayId} — ${supplier} · ${money(req.amount, req.currency)}`,
       blocks,
     });
     return { channel, ts: (res.ts as string | undefined) ?? "" };

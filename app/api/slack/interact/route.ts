@@ -12,7 +12,6 @@ import {
   notifyRequesterRenewal,
   openChargeRejectModal,
   openRejectModal,
-  updateChargeMessage,
   updateHeadMessage,
   updateRenewalMessage,
 } from "@/lib/slack";
@@ -362,17 +361,17 @@ export async function POST(request: Request) {
         try {
           const charge = await getCharge(requestId);
           if (!charge) return;
+          // applyChargeDecision reconciles all co-head DMs (incl. this one).
           const { error } = await applyChargeDecision(
             supabaseBrowser(await mintSupabaseToken(actorEmail)),
             requestId,
             "approve",
             null,
+            actorEmail,
           );
           if (error) {
             console.error("[slack/interact] approve_charge rejected:", error);
-            return;
           }
-          await updateChargeMessage(channelId, messageTs, charge.display_id, "approved", actorEmail);
         } catch (err) {
           console.error("[slack/interact] approve_charge failed:", err);
         }
@@ -431,24 +430,17 @@ export async function POST(request: Request) {
         try {
           const charge = await getCharge(cmeta.chargeId);
           if (!charge) return;
+          // applyChargeDecision reconciles all co-head DMs (incl. this one).
           const { error } = await applyChargeDecision(
             supabaseBrowser(await mintSupabaseToken(actorEmail)),
             cmeta.chargeId,
             "deny",
             creason,
+            actorEmail,
           );
           if (error) {
             console.error("[slack/interact] deny_charge rejected:", error);
-            return;
           }
-          await updateChargeMessage(
-            cmeta.channel,
-            cmeta.messageTsToUpdate,
-            cmeta.displayId,
-            "denied",
-            actorEmail,
-            creason,
-          );
         } catch (err) {
           console.error("[slack/interact] deny_charge submit failed:", err);
         }
