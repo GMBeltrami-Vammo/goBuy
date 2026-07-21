@@ -570,7 +570,8 @@ export function ChargesDashboard({
                     <th scope="col" className="w-[80px] px-5 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">ID</th>
                     <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Fornecedor</th>
                     <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Centro de custo</th>
-                    <th scope="col" className="w-[100px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Vencimento</th>
+                    <th scope="col" className="w-[100px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Aprovar até</th>
+                    <th scope="col" className="w-[110px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Data de pagamento</th>
                     <th scope="col" className="w-[110px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Valor</th>
                     <th scope="col" className="w-[180px] px-5 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Ação</th>
                   </tr>
@@ -609,6 +610,19 @@ export function ChargesDashboard({
                         ) : (
                           <span className="text-[var(--muted)]">—</span>
                         )}
+                      </td>
+                      <td className="px-2 py-3.5 text-right v-tabular text-xs">
+                        {/* Projected payment date if approved now: max(pay-day after
+                            Vencimento, pay-day after today). Red when overdue. */}
+                        <span
+                          className={
+                            !!c.due_date && c.due_date < todayYmd
+                              ? "font-semibold text-[var(--rejected)]"
+                              : "text-[var(--ink)]"
+                          }
+                        >
+                          {formatDateOnlyBR(paymentSchedule(todayYmd, c.due_date).newPaymentDate)}
+                        </span>
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-sm font-bold">{fmtMoney(Number(c.amount), c.currency)}</td>
                       <td className="px-5 py-3.5">

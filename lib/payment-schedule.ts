@@ -35,8 +35,23 @@ export interface PaymentSchedule {
   rescheduled: boolean;
 }
 
+/**
+ * Effective payment date: the LATER of the pay-day after approval and the
+ * pay-day after the Vencimento — i.e. max(nextPaymentDate(approval),
+ * nextPaymentDate(vencimento)). This means a charge is never paid before the
+ * Tuesday/Friday cycle following its due date, nor before the cycle following
+ * approval (overdue charges pay on the next cycle after approval). ISO
+ * yyyy-mm-dd strings compare correctly with `>`.
+ */
+export function effectivePaymentDate(approvalYmd: string, dueYmd: string | null): string {
+  const fromApproval = nextPaymentDate(approvalYmd);
+  if (!dueYmd) return fromApproval;
+  const fromDue = nextPaymentDate(dueYmd);
+  return fromDue > fromApproval ? fromDue : fromApproval;
+}
+
 export function paymentSchedule(approvalYmd: string, dueYmd: string | null): PaymentSchedule {
-  const newPaymentDate = nextPaymentDate(approvalYmd);
+  const newPaymentDate = effectivePaymentDate(approvalYmd, dueYmd);
   return { newPaymentDate, rescheduled: !!dueYmd && dueYmd !== newPaymentDate };
 }
 
