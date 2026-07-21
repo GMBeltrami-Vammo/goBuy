@@ -24,6 +24,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
 import type {
   DocumentType,
+  Fornecedor,
   PaymentMethod,
   PurchaseRequest,
   RequestAllocation,
@@ -88,6 +89,35 @@ export function RequestDrawer({
   // Finance validation form
   const [financePaymentType, setFinancePaymentType] = useState(request.payment_type ?? PAYMENT_TYPES[0]);
   const [financeExpectedDate, setFinanceExpectedDate] = useState(request.expected_payment_date ?? "");
+
+  // Pre-fill the payment form from the fornecedor's saved bank/PIX data — only
+  // when the request has no payment info yet, so we never override what the
+  // requester already entered. Editable afterward.
+  useEffect(() => {
+    if (request.payment_method || !request.fornecedor_id) return;
+    let cancelled = false;
+    void (async () => {
+      const { data } = await supabaseBrowser(supabaseToken)
+        .from("fornecedores")
+        .select("payment_default, pix_key, banco, agencia, conta")
+        .eq("id", request.fornecedor_id)
+        .maybeSingle();
+      if (cancelled || !data) return;
+      const f = data as Pick<Fornecedor, "payment_default" | "pix_key" | "banco" | "agencia" | "conta">;
+      if (f.payment_default === "bank") {
+        setPayMethod("transfer");
+        if (f.banco) setBankName(f.banco);
+        if (f.agencia) setBankAgency(f.agencia);
+        if (f.conta) setBankAccount(f.conta);
+      } else if (f.pix_key) {
+        setPayMethod("pix");
+        setPixKey(f.pix_key);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [request.fornecedor_id, request.payment_method, supabaseToken]);
 
   const isOwner = request.requester_email === viewerEmail;
   const canCancel = isOwner && request.status === "pending";

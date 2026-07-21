@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { NewFornecedorModal } from "@/components/new-fornecedor-modal";
 import { NewRequestModal } from "@/components/new-request-modal";
 import { Pagination, usePagination } from "@/components/pagination";
 import { RequestDrawer } from "@/components/request-drawer";
@@ -17,7 +18,7 @@ import {
   STATUS_LABEL,
 } from "@/lib/format";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import type { CostCenter, PurchaseRequest } from "@/lib/types";
+import type { CostCenter, Fornecedor, PurchaseRequest } from "@/lib/types";
 
 const IN_PROGRESS = ["approved", "awaiting_finance", "awaiting_payment"];
 
@@ -26,18 +27,22 @@ export function RequestsDashboard({
   firstName,
   supabaseToken,
   initialCostCenters,
+  initialFornecedores,
   autoOpenDisplayId,
 }: {
   email: string;
   firstName: string;
   supabaseToken: string;
   initialCostCenters: CostCenter[];
+  initialFornecedores: Fornecedor[];
   autoOpenDisplayId?: string;
 }) {
   const [requests, setRequests] = useState<PurchaseRequest[] | null>(null);
   const [costCenters] = useState<CostCenter[]>(initialCostCenters);
+  const [fornecedores] = useState<Fornecedor[]>(initialFornecedores);
   const [openRequest, setOpenRequest] = useState<PurchaseRequest | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [showNewForn, setShowNewForn] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [ccFilter, setCcFilter] = useState("all");
@@ -145,12 +150,20 @@ export function RequestsDashboard({
             Acompanhe e gerencie suas solicitações de compra.
           </p>
         </div>
-        <button
-          onClick={() => setShowNew(true)}
-          className="rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-bold text-black shadow-[var(--shadow)] transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
-        >
-          + Nova solicitação
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setShowNewForn(true)}
+            className="rounded-lg border border-[var(--line-strong)] px-4 py-2.5 text-sm font-medium transition hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+          >
+            + Adicionar novo fornecedor
+          </button>
+          <button
+            onClick={() => setShowNew(true)}
+            className="rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-bold text-black shadow-[var(--shadow)] transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
+          >
+            + Nova solicitação
+          </button>
+        </div>
       </div>
 
       {toast && (
@@ -396,6 +409,8 @@ export function RequestsDashboard({
       {showNew && (
         <NewRequestModal
           costCenters={costCenters}
+          fornecedores={fornecedores}
+          supabaseToken={supabaseToken}
           onClose={() => setShowNew(false)}
           onSubmitted={(displayId, note) => {
             setShowNew(false);
@@ -404,6 +419,18 @@ export function RequestsDashboard({
                 (note ? ` ${note}` : ""),
             );
             void load();
+          }}
+        />
+      )}
+
+      {showNewForn && (
+        <NewFornecedorModal
+          costCenters={costCenters}
+          supabaseToken={supabaseToken}
+          onClose={() => setShowNewForn(false)}
+          onCreated={(name) => {
+            setShowNewForn(false);
+            flash(`Fornecedor "${name}" cadastrado — disponível para solicitações após aprovação do Financeiro.`);
           }}
         />
       )}

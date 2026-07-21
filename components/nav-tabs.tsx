@@ -25,6 +25,7 @@ export function NavTabs({
         { href: "/", label: "Minhas solicitações" },
         ...(isHead ? [{ href: "/approvals", label: "Aprovações" }] : []),
         ...(canFinance || canFiscal ? [{ href: "/finance", label: "Financeiro" }] : []),
+        ...(canFinance ? [{ href: "/fornecedores", label: "Fornecedores" }] : []),
         ...(isAdmin ? [{ href: "/admin", label: "Admin" }] : []),
         { href: "/cobrancas", label: "Cobranças (demo)" },
       ]

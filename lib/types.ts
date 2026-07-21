@@ -42,11 +42,34 @@ export interface CostCenterBudget {
   source: string;
 }
 
+export interface Fornecedor {
+  id: number;
+  razao_social: string;
+  document: string;
+  banco: string | null;
+  agencia: string | null;
+  conta: string | null;
+  pix_key: string | null;
+  payment_default: "bank" | "pix" | null;
+  default_cost_center_id: number | null;
+  contract_storage_path: string | null;
+  contract_filename: string | null;
+  contract_content_type: string | null;
+  contract_size_bytes: number | null;
+  status: "pending" | "approved";
+  active: boolean;
+  created_by_email: string | null;
+  created_at: string;
+  approved_by_email: string | null;
+  approved_at: string | null;
+}
+
 export interface PurchaseRequest {
   id: string;
   display_id: string;
   request_type: RequestType;
   status: RequestStatus;
+  fornecedor_id: number;
   supplier_name: string;
   supplier_document: string | null;
   cost_center_id: number;

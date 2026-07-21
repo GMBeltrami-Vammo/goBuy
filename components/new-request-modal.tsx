@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { NewFornecedorModal } from "@/components/new-fornecedor-modal";
 import { DOC_TYPE_LABEL, formatBRL } from "@/lib/format";
 import { COMPANIES, CURRENCIES, CURRENCY_CUSTOM, allowedDocTypes, formatAmount } from "@/lib/payment";
+import { supabaseBrowser } from "@/lib/supabase/client";
 import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
-import type { CostCenter, DocumentType, RequestType } from "@/lib/types";
+import type { CostCenter, DocumentType, Fornecedor, RequestType } from "@/lib/types";
 
 interface StagedDoc {
   file: File;
@@ -33,12 +35,20 @@ const UNITS = ["un", "cx", "kg", "par", "m", "L", "h"];
 
 export function NewRequestModal({
   costCenters,
+  fornecedores,
+  supabaseToken,
   onClose,
   onSubmitted,
+  onFornecedorCreated,
 }: {
   costCenters: CostCenter[];
+  /** Approved + active fornecedores selectable on the request. */
+  fornecedores: Fornecedor[];
+  supabaseToken: string;
   onClose: () => void;
   onSubmitted: (displayId: string, note?: string) => void;
+  /** Called after an inline fornecedor registration so the parent can refresh. */
+  onFornecedorCreated?: () => void;
 }) {
   useBodyScrollLock();
 
@@ -52,8 +62,9 @@ export function NewRequestModal({
   }, []);
 
   const [type, setType] = useState<RequestType>("products");
-  const [supplier, setSupplier] = useState("");
-  const [supplierDoc, setSupplierDoc] = useState("");
+  const [fornId, setFornId] = useState<string>("");
+  const [showNewForn, setShowNewForn] = useState(false);
+  const [newFornNote, setNewFornNote] = useState<string | null>(null);
   const [ccId, setCcId] = useState<string>("");
   const [justification, setJustification] = useState("");
   const [notes, setNotes] = useState("");
@@ -112,6 +123,35 @@ export function NewRequestModal({
     [costCenters, ccId],
   );
 
+  const selectedForn = useMemo(
+    () => fornecedores.find((f) => String(f.id) === fornId) ?? null,
+    [fornecedores, fornId],
+  );
+
+  // On picking a fornecedor, pre-select the cost center: the supplier's manual
+  // default if set (and still active), otherwise its most-used CC (server-side).
+  const onSelectForn = async (id: string) => {
+    setFornId(id);
+    if (fieldErrors.fornecedor) setFieldErrors((p) => ({ ...p, fornecedor: "" }));
+    if (!id) return;
+    const f = fornecedores.find((x) => String(x.id) === id);
+    if (!f) return;
+    const isActiveCc = (cc: number | null | undefined) =>
+      cc != null && costCenters.some((c) => c.id === cc);
+    if (isActiveCc(f.default_cost_center_id)) {
+      setCcId(String(f.default_cost_center_id));
+      if (fieldErrors.cc) setFieldErrors((p) => ({ ...p, cc: "" }));
+      return;
+    }
+    const { data: topCc } = await supabaseBrowser(supabaseToken).rpc("fornecedor_top_cc", {
+      p_id: f.id,
+    });
+    if (isActiveCc(topCc as number | null)) {
+      setCcId(String(topCc));
+      if (fieldErrors.cc) setFieldErrors((p) => ({ ...p, cc: "" }));
+    }
+  };
+
   const itemsTotal = useMemo(
     () =>
       items.reduce((acc, it) => {
@@ -163,8 +203,8 @@ export function NewRequestModal({
     if (submittingRef.current) return;
     const errs: Record<string, string> = {};
 
-    if (!supplier.trim())
-      errs.supplier = isAdvance ? "Informe o beneficiário." : "Informe o fornecedor.";
+    if (!fornId)
+      errs.fornecedor = isAdvance ? "Selecione o beneficiário." : "Selecione o fornecedor.";
     if (!ccId)
       errs.cc = "Selecione o centro de custo.";
     if (currency === CURRENCY_CUSTOM && !/^[A-Z]{2,10}$/.test(customCurrency.trim().toUpperCase()))
@@ -196,8 +236,11 @@ export function NewRequestModal({
 
     const payload: Record<string, unknown> = {
       request_type: type,
-      supplier_name: supplier.trim(),
-      supplier_document: supplierDoc.trim() || null,
+      fornecedor_id: Number(fornId),
+      // Sent for the Slack notification fallback; the RPC re-derives the
+      // authoritative name/document from the fornecedor record.
+      supplier_name: selectedForn?.razao_social ?? "",
+      supplier_document: selectedForn?.document ?? null,
       cost_center_id: Number(ccId),
       justification: justification.trim() || null,
       notes: notes.trim() || null,
@@ -368,6 +411,7 @@ export function NewRequestModal({
   }
 
   return (
+    <>
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 p-4 backdrop-blur-[2px] sm:p-8"
       onMouseDown={(e) => e.target === e.currentTarget && dismissRef.current()}
@@ -411,22 +455,36 @@ export function NewRequestModal({
 
           {/* Supplier + CC */}
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label={isAdvance ? "Nome do beneficiário" : "Nome do fornecedor"} error={fieldErrors.supplier}>
-              <input
-                value={supplier}
-                onChange={(e) => { setSupplier(e.target.value); if (fieldErrors.supplier) setFieldErrors((p) => ({ ...p, supplier: "" })); }}
-                placeholder={isAdvance ? "Quem receberá o adiantamento" : "Razão social"}
+            <Field label={isAdvance ? "Beneficiário (fornecedor)" : "Fornecedor"} error={fieldErrors.fornecedor}>
+              <select
+                value={fornId}
+                onChange={(e) => void onSelectForn(e.target.value)}
                 className="input"
-                maxLength={200}
-              />
+              >
+                <option value="">Selecione…</option>
+                {fornecedores.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.razao_social} — {f.document}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setShowNewForn(true)}
+                className="mt-1.5 text-xs font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              >
+                + Adicionar novo fornecedor
+              </button>
+              {newFornNote && (
+                <span className="mt-1 block text-xs text-[var(--pending-text-strong)]">{newFornNote}</span>
+              )}
             </Field>
             <Field label={isAdvance ? "CPF" : "CNPJ"}>
               <input
-                value={supplierDoc}
-                onChange={(e) => setSupplierDoc(e.target.value)}
-                placeholder={isAdvance ? "000.000.000-00" : "00.000.000/0001-00"}
-                className="input"
-                maxLength={20}
+                readOnly
+                value={selectedForn?.document ?? ""}
+                placeholder="Preenchido pelo fornecedor"
+                className="input bg-[var(--surface-2)] text-[var(--muted)]"
               />
             </Field>
             <Field label="Centro de custo" error={fieldErrors.cc}>
@@ -910,6 +968,19 @@ export function NewRequestModal({
         </div>
       </div>
     </div>
+    {showNewForn && (
+      <NewFornecedorModal
+        costCenters={costCenters}
+        supabaseToken={supabaseToken}
+        onClose={() => setShowNewForn(false)}
+        onCreated={(name) => {
+          setShowNewForn(false);
+          setNewFornNote(`"${name}" cadastrado — disponível para seleção após aprovação do Financeiro.`);
+          onFornecedorCreated?.();
+        }}
+      />
+    )}
+    </>
   );
 }
 

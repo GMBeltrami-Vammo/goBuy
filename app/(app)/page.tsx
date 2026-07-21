@@ -22,12 +22,21 @@ export default async function HomePage({
 
   const { r } = await searchParams;
 
-  const { data: costCenters } = await supabaseAdmin()
-    .from("cost_centers")
-    .select("id, code, name, department, active, cost_center_heads(head_name, head_email)")
-    .eq("active", true)
-    .order("department")
-    .order("code");
+  const admin = supabaseAdmin();
+  const [{ data: costCenters }, { data: fornecedores }] = await Promise.all([
+    admin
+      .from("cost_centers")
+      .select("id, code, name, department, active, cost_center_heads(head_name, head_email)")
+      .eq("active", true)
+      .order("department")
+      .order("code"),
+    admin
+      .from("fornecedores")
+      .select("*")
+      .eq("status", "approved")
+      .eq("active", true)
+      .order("razao_social"),
+  ]);
 
   return (
     <RequestsDashboard
@@ -35,6 +44,7 @@ export default async function HomePage({
       firstName={ctx.fullName.split(" ")[0]}
       supabaseToken={ctx.supabaseToken}
       initialCostCenters={costCenters ?? []}
+      initialFornecedores={fornecedores ?? []}
       autoOpenDisplayId={r}
     />
   );
