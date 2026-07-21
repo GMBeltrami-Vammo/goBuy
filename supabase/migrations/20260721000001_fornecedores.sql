@@ -8,7 +8,7 @@
 CREATE TABLE IF NOT EXISTS finance.fornecedores (
   id                    bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,  -- registration sequence
   razao_social          text NOT NULL,
-  document              text NOT NULL,                        -- CNPJ or CPF, as entered
+  document              text NOT NULL,                        -- CNPJ (validated via BrasilAPI at registration)
   -- Bank-transfer method (all three together) OR PIX method — at least one required.
   banco                 text,
   agencia               text,
@@ -116,10 +116,10 @@ begin
     raise exception 'razão social muito longa';
   end if;
   if v_doc is null then
-    raise exception 'CNPJ/CPF é obrigatório';
+    raise exception 'CNPJ é obrigatório';
   end if;
   if length(v_doc) > 40 then
-    raise exception 'documento inválido';
+    raise exception 'CNPJ inválido';
   end if;
 
   v_has_bank := (v_banco is not null and v_agencia is not null and v_conta is not null);

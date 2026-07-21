@@ -2,14 +2,17 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { maskCNPJ, onlyDigits } from "@/lib/format";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
-import type { CostCenter } from "@/lib/types";
+import type { CnpjLookup, CostCenter } from "@/lib/types";
 
 /**
- * Registration form for a new fornecedor. Registers as `pending` (Finance must
- * approve before it can be selected on a request). Reused by the Finance
- * dashboard and inline from the new-request modal.
+ * Registration form for a new fornecedor. Flow: enter the CNPJ → tap Verificar
+ * (BrasilAPI lookup) → the rest of the form unlocks, pre-filled from the Receita
+ * data. Registers as `pending` (Finance must approve before it can be selected
+ * on a request). Reused by the Finance dashboard and inline from the new-request
+ * modal.
  */
 export function NewFornecedorModal({
   costCenters,
@@ -30,8 +33,12 @@ export function NewFornecedorModal({
     return () => document.removeEventListener("keydown", handler);
   }, [onClose]);
 
+  const [cnpj, setCnpj] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [lookup, setLookup] = useState<CnpjLookup | null>(null);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+
   const [razao, setRazao] = useState("");
-  const [doc, setDoc] = useState("");
   const [banco, setBanco] = useState("");
   const [agencia, setAgencia] = useState("");
   const [conta, setConta] = useState("");
@@ -47,6 +54,9 @@ export function NewFornecedorModal({
   const [sending, setSending] = useState(false);
   const submittingRef = useRef(false);
 
+  const cnpjDigits = onlyDigits(cnpj);
+  const canVerify = cnpjDigits.length === 14 && !verifying;
+
   const grouped = useMemo(() => {
     const map = new Map<string, CostCenter[]>();
     for (const cc of costCenters) {
@@ -61,11 +71,46 @@ export function NewFornecedorModal({
   const hasPix = !!pixKey.trim();
   const bankPartial = !!(banco.trim() || agencia.trim() || conta.trim()) && !hasBank;
 
+  // Editing the CNPJ after a lookup invalidates it — force a fresh Verificar so
+  // the stored razão social always matches the confirmed CNPJ.
+  const onCnpjChange = (raw: string) => {
+    setCnpj(maskCNPJ(raw));
+    setLookupError(null);
+    if (lookup) {
+      setLookup(null);
+      setRazao("");
+    }
+  };
+
+  const verify = async () => {
+    if (!canVerify) return;
+    setVerifying(true);
+    setLookupError(null);
+    try {
+      const res = await fetch(`/api/cnpj/${cnpjDigits}`);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setLookup(null);
+        setLookupError(body.error ?? "Não foi possível consultar o CNPJ.");
+        return;
+      }
+      const data = (await res.json()) as CnpjLookup;
+      setLookup(data);
+      setRazao(data.razao_social);
+      setFieldErrors((p) => ({ ...p, cnpj: "", razao: "" }));
+    } catch {
+      setLookup(null);
+      setLookupError("Erro de rede ao consultar o CNPJ.");
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   const submit = async () => {
     if (submittingRef.current) return;
     const errs: Record<string, string> = {};
+    if (!lookup) errs.cnpj = "Verifique o CNPJ antes de cadastrar.";
     if (!razao.trim()) errs.razao = "Informe a razão social.";
-    if (!doc.trim()) errs.doc = "Informe o CNPJ ou CPF.";
     if (!hasBank && !hasPix)
       errs.payment = "Informe uma chave PIX ou os dados bancários completos (banco, agência e conta).";
     else if (bankPartial)
@@ -80,7 +125,7 @@ export function NewFornecedorModal({
 
     const payload = {
       razao_social: razao.trim(),
-      document: doc.trim(),
+      document: maskCNPJ(cnpjDigits),
       banco: hasBank ? banco.trim() : null,
       agencia: hasBank ? agencia.trim() : null,
       conta: hasBank ? conta.trim() : null,
@@ -125,8 +170,6 @@ export function NewFornecedorModal({
 
     setSending(false);
     submittingRef.current = false;
-    // If the contract failed, hold the modal open so the user sees why (they can
-    // then click Concluir); otherwise close immediately.
     if (warn) {
       setContractWarning(warn);
       return;
@@ -157,138 +200,206 @@ export function NewFornecedorModal({
             a aprovação do Financeiro.
           </p>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Razão social" error={fieldErrors.razao} full>
+          {/* Step 1 — CNPJ + Verificar */}
+          <Field label="CNPJ" error={fieldErrors.cnpj}>
+            <div className="flex items-stretch gap-2">
               <input
-                value={razao}
-                onChange={(e) => { setRazao(e.target.value); if (fieldErrors.razao) setFieldErrors((p) => ({ ...p, razao: "" })); }}
-                placeholder="Nome / razão social do fornecedor"
-                className="input"
-                maxLength={200}
+                value={cnpj}
+                onChange={(e) => onCnpjChange(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void verify(); } }}
+                inputMode="numeric"
+                placeholder="00.000.000/0000-00"
+                className="input flex-1"
+                maxLength={18}
+                autoFocus
+                disabled={!!lookup}
               />
-            </Field>
-            <Field label="CNPJ / CPF" error={fieldErrors.doc} full>
-              <input
-                value={doc}
-                onChange={(e) => { setDoc(e.target.value); if (fieldErrors.doc) setFieldErrors((p) => ({ ...p, doc: "" })); }}
-                placeholder="00.000.000/0001-00 ou 000.000.000-00"
-                className="input"
-                maxLength={40}
-              />
-            </Field>
-          </div>
-
-          {/* Payment data */}
-          <div className="rounded-lg border border-[var(--line)] px-4 py-3">
-            <p className="text-sm font-medium">Dados de pagamento</p>
-            <p className="mt-0.5 text-xs text-[var(--faint)]">
-              Informe a chave PIX, os dados bancários, ou ambos. Ao preencher os dois, escolha o padrão.
-            </p>
-            <div className="mt-3 grid gap-4 sm:grid-cols-2">
-              <Field label="Chave PIX">
-                <input
-                  value={pixKey}
-                  onChange={(e) => { setPixKey(e.target.value); if (fieldErrors.payment) setFieldErrors((p) => ({ ...p, payment: "" })); }}
-                  placeholder="CNPJ, e-mail, telefone ou aleatória"
-                  className="input"
-                  maxLength={200}
-                />
-              </Field>
-              <Field label="Banco">
-                <input
-                  value={banco}
-                  onChange={(e) => { setBanco(e.target.value); if (fieldErrors.payment) setFieldErrors((p) => ({ ...p, payment: "" })); }}
-                  placeholder="Ex: Itaú (341)"
-                  className="input"
-                  maxLength={200}
-                />
-              </Field>
-              <Field label="Agência">
-                <input
-                  value={agencia}
-                  onChange={(e) => { setAgencia(e.target.value); if (fieldErrors.payment) setFieldErrors((p) => ({ ...p, payment: "" })); }}
-                  placeholder="0000"
-                  className="input"
-                  maxLength={200}
-                />
-              </Field>
-              <Field label="Conta">
-                <input
-                  value={conta}
-                  onChange={(e) => { setConta(e.target.value); if (fieldErrors.payment) setFieldErrors((p) => ({ ...p, payment: "" })); }}
-                  placeholder="00000-0"
-                  className="input"
-                  maxLength={200}
-                />
-              </Field>
-            </div>
-            {hasBank && hasPix && (
-              <div className="mt-3">
-                <span className="mb-1.5 block text-xs font-medium text-[var(--muted)]">Método padrão</span>
-                <div className="flex gap-2" role="group" aria-label="Método de pagamento padrão">
-                  {([["pix", "PIX"], ["bank", "Transferência"]] as [("pix" | "bank"), string][]).map(([m, label]) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setPaymentDefault(m)}
-                      aria-pressed={paymentDefault === m}
-                      className={`rounded-lg border px-4 py-1.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
-                        paymentDefault === m
-                          ? "border-[var(--accent)] bg-[var(--accent-soft)] font-semibold text-[var(--ink)]"
-                          : "border-[var(--line)] text-[var(--muted)] hover:border-[var(--line-strong)]"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {fieldErrors.payment && (
-              <p className="mt-2 text-xs text-[var(--rejected)]" role="alert">{fieldErrors.payment}</p>
-            )}
-          </div>
-
-          {/* Optional default CC + contract */}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Centro de custo padrão (opcional)">
-              <select value={ccId} onChange={(e) => setCcId(e.target.value)} className="input">
-                <option value="">Nenhum — usar o mais frequente</option>
-                {grouped.map(([dept, ccs]) => (
-                  <optgroup key={dept} label={dept}>
-                    {ccs.map((cc) => (
-                      <option key={cc.id} value={cc.id}>
-                        {cc.code} — {cc.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </Field>
-            <Field label="Contrato / proposta (PDF, opcional)">
-              <input
-                ref={fileRef}
-                type="file"
-                accept="application/pdf"
-                className="hidden"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-              <div className="flex items-center gap-2">
+              {lookup ? (
                 <button
                   type="button"
-                  onClick={() => fileRef.current?.click()}
-                  className="rounded-lg border border-dashed border-[var(--line-strong)] px-3 py-2 text-xs text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                  onClick={() => { setLookup(null); setRazao(""); }}
+                  className="shrink-0 rounded-lg border border-[var(--line-strong)] px-4 text-sm font-medium transition hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 >
-                  {file ? "Trocar PDF" : "+ Anexar PDF"}
+                  Alterar
                 </button>
-                {file && (
-                  <span className="min-w-0 flex-1 truncate text-xs text-[var(--muted)]" title={file.name}>
-                    {file.name}
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void verify()}
+                  disabled={!canVerify}
+                  className="shrink-0 rounded-lg bg-[var(--accent)] px-4 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
+                >
+                  {verifying ? "Verificando…" : "Verificar"}
+                </button>
+              )}
+            </div>
+            {lookupError && (
+              <span className="mt-1 block text-xs text-[var(--rejected)]" role="alert">{lookupError}</span>
+            )}
+            {!lookup && !lookupError && (
+              <span className="mt-1 block text-xs text-[var(--faint)]">
+                Informe o CNPJ e clique em Verificar para buscar os dados na Receita.
+              </span>
+            )}
+          </Field>
+
+          {/* Step 2 — rest of the form, unlocked after a successful lookup */}
+          {lookup && (
+            <>
+              {/* Confirmation card */}
+              <div className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold">
+                    {lookup.nome_fantasia || lookup.razao_social}
+                  </p>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                      lookup.ativa
+                        ? "bg-[var(--approved-soft)] text-[var(--approved)]"
+                        : "bg-[var(--rejected-soft)] text-[var(--rejected)]"
+                    }`}
+                  >
+                    {lookup.situacao_cadastral}
                   </span>
+                </div>
+                <p className="mt-0.5 v-tabular text-xs text-[var(--muted)]">{maskCNPJ(lookup.cnpj)}</p>
+                {(lookup.endereco || lookup.municipio) && (
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    {[lookup.endereco, lookup.bairro, [lookup.municipio, lookup.uf].filter(Boolean).join("/"), lookup.cep]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                )}
+                {!lookup.ativa && (
+                  <p className="mt-1.5 text-xs font-medium text-[var(--rejected)]">
+                    ⚠ Situação cadastral não está ATIVA — confirme antes de aprovar.
+                  </p>
                 )}
               </div>
-            </Field>
-          </div>
+
+              <Field label="Razão social" error={fieldErrors.razao} full>
+                <input
+                  value={razao}
+                  onChange={(e) => { setRazao(e.target.value); if (fieldErrors.razao) setFieldErrors((p) => ({ ...p, razao: "" })); }}
+                  placeholder="Razão social do fornecedor"
+                  className="input"
+                  maxLength={200}
+                />
+              </Field>
+
+              {/* Payment data */}
+              <div className="rounded-lg border border-[var(--line)] px-4 py-3">
+                <p className="text-sm font-medium">Dados de pagamento</p>
+                <p className="mt-0.5 text-xs text-[var(--faint)]">
+                  Informe a chave PIX, os dados bancários, ou ambos. Ao preencher os dois, escolha o padrão.
+                </p>
+                <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                  <Field label="Chave PIX">
+                    <input
+                      value={pixKey}
+                      onChange={(e) => { setPixKey(e.target.value); if (fieldErrors.payment) setFieldErrors((p) => ({ ...p, payment: "" })); }}
+                      placeholder="CNPJ, e-mail, telefone ou aleatória"
+                      className="input"
+                      maxLength={200}
+                    />
+                  </Field>
+                  <Field label="Banco">
+                    <input
+                      value={banco}
+                      onChange={(e) => { setBanco(e.target.value); if (fieldErrors.payment) setFieldErrors((p) => ({ ...p, payment: "" })); }}
+                      placeholder="Ex: Itaú (341)"
+                      className="input"
+                      maxLength={200}
+                    />
+                  </Field>
+                  <Field label="Agência">
+                    <input
+                      value={agencia}
+                      onChange={(e) => { setAgencia(e.target.value); if (fieldErrors.payment) setFieldErrors((p) => ({ ...p, payment: "" })); }}
+                      placeholder="0000"
+                      className="input"
+                      maxLength={200}
+                    />
+                  </Field>
+                  <Field label="Conta">
+                    <input
+                      value={conta}
+                      onChange={(e) => { setConta(e.target.value); if (fieldErrors.payment) setFieldErrors((p) => ({ ...p, payment: "" })); }}
+                      placeholder="00000-0"
+                      className="input"
+                      maxLength={200}
+                    />
+                  </Field>
+                </div>
+                {hasBank && hasPix && (
+                  <div className="mt-3">
+                    <span className="mb-1.5 block text-xs font-medium text-[var(--muted)]">Método padrão</span>
+                    <div className="flex gap-2" role="group" aria-label="Método de pagamento padrão">
+                      {([["pix", "PIX"], ["bank", "Transferência"]] as [("pix" | "bank"), string][]).map(([m, label]) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setPaymentDefault(m)}
+                          aria-pressed={paymentDefault === m}
+                          className={`rounded-lg border px-4 py-1.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
+                            paymentDefault === m
+                              ? "border-[var(--accent)] bg-[var(--accent-soft)] font-semibold text-[var(--ink)]"
+                              : "border-[var(--line)] text-[var(--muted)] hover:border-[var(--line-strong)]"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {fieldErrors.payment && (
+                  <p className="mt-2 text-xs text-[var(--rejected)]" role="alert">{fieldErrors.payment}</p>
+                )}
+              </div>
+
+              {/* Optional default CC + contract */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Centro de custo padrão (opcional)">
+                  <select value={ccId} onChange={(e) => setCcId(e.target.value)} className="input">
+                    <option value="">Nenhum — usar o mais frequente</option>
+                    {grouped.map(([dept, ccs]) => (
+                      <optgroup key={dept} label={dept}>
+                        {ccs.map((cc) => (
+                          <option key={cc.id} value={cc.id}>
+                            {cc.code} — {cc.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Contrato / proposta (PDF, opcional)">
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="application/pdf"
+                    className="hidden"
+                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => fileRef.current?.click()}
+                      className="rounded-lg border border-dashed border-[var(--line-strong)] px-3 py-2 text-xs text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                    >
+                      {file ? "Trocar PDF" : "+ Anexar PDF"}
+                    </button>
+                    {file && (
+                      <span className="min-w-0 flex-1 truncate text-xs text-[var(--muted)]" title={file.name}>
+                        {file.name}
+                      </span>
+                    )}
+                  </div>
+                </Field>
+              </div>
+            </>
+          )}
 
           {contractWarning && (
             <p
@@ -326,7 +437,8 @@ export function NewFornecedorModal({
               </button>
               <button
                 onClick={() => void submit()}
-                disabled={sending}
+                disabled={sending || !lookup}
+                title={!lookup ? "Verifique o CNPJ primeiro" : undefined}
                 className="rounded-lg bg-[var(--accent)] px-5 py-2 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
               >
                 {sending ? "Cadastrando…" : "Cadastrar fornecedor"}

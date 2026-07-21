@@ -479,7 +479,7 @@ export function NewRequestModal({
                 <span className="mt-1 block text-xs text-[var(--pending-text-strong)]">{newFornNote}</span>
               )}
             </Field>
-            <Field label={isAdvance ? "CPF" : "CNPJ"}>
+            <Field label="CNPJ">
               <input
                 readOnly
                 value={selectedForn?.document ?? ""}

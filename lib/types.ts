@@ -42,6 +42,24 @@ export interface CostCenterBudget {
   source: string;
 }
 
+/** Normalized subset of the BrasilAPI CNPJ response (see /api/cnpj/[cnpj]). */
+export interface CnpjLookup {
+  cnpj: string; // 14 digits
+  razao_social: string;
+  nome_fantasia: string | null;
+  situacao_cadastral: string; // e.g. "ATIVA"
+  ativa: boolean;
+  endereco: string | null; // one-line street address
+  bairro: string | null;
+  municipio: string | null;
+  uf: string | null;
+  cep: string | null;
+  telefone: string | null;
+  email: string | null;
+  cnae: string | null;
+  natureza_juridica: string | null;
+}
+
 export interface Fornecedor {
   id: number;
   razao_social: string;

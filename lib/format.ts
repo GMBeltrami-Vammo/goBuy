@@ -69,6 +69,20 @@ export const parseDMY = (s: string): string => {
  */
 export const isInvalidDMY = (s: string): boolean => s.length === 10 && parseDMY(s) === "";
 
+/** Progressive mask for a CNPJ input → "00.000.000/0000-00". */
+export const maskCNPJ = (raw: string): string => {
+  const d = raw.replace(/\D/g, "").slice(0, 14);
+  let out = d.slice(0, 2);
+  if (d.length > 2) out += "." + d.slice(2, 5);
+  if (d.length > 5) out += "." + d.slice(5, 8);
+  if (d.length > 8) out += "/" + d.slice(8, 12);
+  if (d.length > 12) out += "-" + d.slice(12, 14);
+  return out;
+};
+
+/** Strip everything but digits — e.g. a masked CNPJ back to its 14 digits. */
+export const onlyDigits = (s: string): string => s.replace(/\D/g, "");
+
 /**
  * Parse a Brazilian-formatted money string into a number.
  * Accepts "1234,56", "1.234,56", "1234.56", "1234", with an optional "R$"/spaces.

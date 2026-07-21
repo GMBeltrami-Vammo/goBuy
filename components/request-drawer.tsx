@@ -369,10 +369,7 @@ export function RequestDrawer({
             <Meta label="Criada em" value={formatDate(request.created_at)} />
             {currency !== "BRL" && <Meta label="Moeda" value={currency} />}
             {request.supplier_document && (
-              <Meta
-                label={request.request_type === "advance" ? "CPF" : "CNPJ"}
-                value={request.supplier_document}
-              />
+              <Meta label="CNPJ" value={request.supplier_document} />
             )}
             {request.decided_by_email && (
               <Meta label="Decidida por" value={request.decided_by_email} />
