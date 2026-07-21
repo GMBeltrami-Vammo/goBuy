@@ -76,6 +76,9 @@ export function RequestDrawer({
   // Synchronous double-submit guard: `busy` disables the buttons, but only
   // after a re-render, so a fast double-click could otherwise fire twice.
   const busyRef = useRef(false);
+  // Set once the user edits any payment field, so the async fornecedor pre-fill
+  // never clobbers a choice they already made while the query was in flight.
+  const paymentTouchedRef = useRef(false);
 
   // Payment-info form (requester, after approval)
   const [nfNumber, setNfNumber] = useState(request.nf_number ?? "");
@@ -102,7 +105,7 @@ export function RequestDrawer({
         .select("payment_default, pix_key, banco, agencia, conta")
         .eq("id", request.fornecedor_id)
         .maybeSingle();
-      if (cancelled || !data) return;
+      if (cancelled || paymentTouchedRef.current || !data) return;
       const f = data as Pick<Fornecedor, "payment_default" | "pix_key" | "banco" | "agencia" | "conta">;
       if (f.payment_default === "bank") {
         setPayMethod("transfer");
@@ -594,7 +597,7 @@ export function RequestDrawer({
                       <button
                         key={m}
                         type="button"
-                        onClick={() => setPayMethod(m)}
+                        onClick={() => { paymentTouchedRef.current = true; setPayMethod(m); }}
                         className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
                           payMethod === m
                             ? "border-[var(--accent)] bg-[var(--surface)] text-[var(--accent)]"
@@ -613,7 +616,7 @@ export function RequestDrawer({
                     </label>
                     <input
                       value={pixKey}
-                      onChange={(e) => setPixKey(e.target.value)}
+                      onChange={(e) => { paymentTouchedRef.current = true; setPixKey(e.target.value); }}
                       className="input text-sm"
                       maxLength={200}
                       placeholder="CNPJ, e-mail, telefone ou chave aleatória"
@@ -624,15 +627,15 @@ export function RequestDrawer({
                   <div className="grid grid-cols-3 gap-2">
                     <div className="col-span-3 sm:col-span-1">
                       <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Banco *</label>
-                      <input value={bankName} onChange={(e) => setBankName(e.target.value)} className="input text-sm" maxLength={200} />
+                      <input value={bankName} onChange={(e) => { paymentTouchedRef.current = true; setBankName(e.target.value); }} className="input text-sm" maxLength={200} />
                     </div>
                     <div className="col-span-3 sm:col-span-1">
                       <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Agência *</label>
-                      <input value={bankAgency} onChange={(e) => setBankAgency(e.target.value)} className="input text-sm" maxLength={200} />
+                      <input value={bankAgency} onChange={(e) => { paymentTouchedRef.current = true; setBankAgency(e.target.value); }} className="input text-sm" maxLength={200} />
                     </div>
                     <div className="col-span-3 sm:col-span-1">
                       <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Conta *</label>
-                      <input value={bankAccount} onChange={(e) => setBankAccount(e.target.value)} className="input text-sm" maxLength={200} />
+                      <input value={bankAccount} onChange={(e) => { paymentTouchedRef.current = true; setBankAccount(e.target.value); }} className="input text-sm" maxLength={200} />
                     </div>
                   </div>
                 )}

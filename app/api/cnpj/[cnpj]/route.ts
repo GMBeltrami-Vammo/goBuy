@@ -10,6 +10,13 @@ export const runtime = "nodejs";
 // BrasilAPI public CNPJ endpoint (no key). Overridable for testing.
 const CNPJ_API = process.env.CNPJ_API_URL ?? "https://brasilapi.com.br/api/cnpj/v1";
 
+// Short-TTL in-memory success cache (per server instance). Cuts repeat lookups
+// of the same CNPJ and softens BrasilAPI's shared free-tier quota. This is a
+// cheap mitigation, not a substitute for a shared-store per-user rate limiter.
+const CACHE_TTL_MS = 1000 * 60 * 60; // 1h
+const CACHE_MAX = 1000;
+const cache = new Map<string, { at: number; data: CnpjLookup }>();
+
 const CEP = (v: unknown) => {
   const d = String(v ?? "").replace(/\D/g, "");
   return d.length === 8 ? `${d.slice(0, 5)}-${d.slice(5)}` : d || null;
@@ -67,6 +74,11 @@ export async function GET(
     return NextResponse.json({ error: "CNPJ inválido — informe 14 dígitos." }, { status: 400 });
   }
 
+  const hit = cache.get(digits);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+    return NextResponse.json(hit.data);
+  }
+
   // Guard against a hung upstream so the Verify button always resolves.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 9000);
@@ -88,6 +100,12 @@ export async function GET(
 
   if (res.status === 404) {
     return NextResponse.json({ error: "CNPJ não encontrado na Receita." }, { status: 404 });
+  }
+  if (res.status === 429) {
+    return NextResponse.json(
+      { error: "Muitas consultas ao serviço de CNPJ. Tente novamente em instantes." },
+      { status: 429 },
+    );
   }
   if (!res.ok) {
     console.error("[api/cnpj] upstream status:", res.status);
@@ -131,6 +149,12 @@ export async function GET(
     cnae: str(raw.cnae_fiscal_descricao),
     natureza_juridica: str(raw.natureza_juridica),
   };
+
+  if (cache.size >= CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(digits, { at: Date.now(), data: result });
 
   return NextResponse.json(result);
 }

@@ -47,6 +47,8 @@ export function NewFornecedorModal({
   const [ccId, setCcId] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cnpjRef = useRef<HTMLInputElement>(null);
+  const hadLookupRef = useRef(false);
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState<string | null>(null);
@@ -56,6 +58,16 @@ export function NewFornecedorModal({
 
   const cnpjDigits = onlyDigits(cnpj);
   const canVerify = cnpjDigits.length === 14 && !verifying;
+
+  // When the CNPJ is invalidated (Alterar / edit), return focus to the input so
+  // a keyboard user can retype immediately. Only fires on set→null, not on mount.
+  useEffect(() => {
+    if (lookup) { hadLookupRef.current = true; return; }
+    if (hadLookupRef.current) {
+      hadLookupRef.current = false;
+      cnpjRef.current?.focus();
+    }
+  }, [lookup]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, CostCenter[]>();
@@ -71,23 +83,39 @@ export function NewFornecedorModal({
   const hasPix = !!pixKey.trim();
   const bankPartial = !!(banco.trim() || agencia.trim() || conta.trim()) && !hasBank;
 
+  // Clear everything derived from / entered after a lookup so invalidating the
+  // CNPJ can never leave a stale razão social or another company's bank data.
+  const resetDownstream = () => {
+    setLookup(null);
+    setRazao("");
+    setBanco("");
+    setAgencia("");
+    setConta("");
+    setPixKey("");
+    setPaymentDefault("pix");
+    setCcId("");
+    setFile(null);
+    if (fileRef.current) fileRef.current.value = "";
+    setFieldErrors({});
+  };
+
   // Editing the CNPJ after a lookup invalidates it — force a fresh Verificar so
-  // the stored razão social always matches the confirmed CNPJ.
+  // the stored razão social/bank data always match the confirmed CNPJ.
   const onCnpjChange = (raw: string) => {
     setCnpj(maskCNPJ(raw));
     setLookupError(null);
-    if (lookup) {
-      setLookup(null);
-      setRazao("");
-    }
+    if (lookup) resetDownstream();
   };
 
   const verify = async () => {
     if (!canVerify) return;
+    const requested = cnpjDigits;
     setVerifying(true);
     setLookupError(null);
     try {
-      const res = await fetch(`/api/cnpj/${cnpjDigits}`);
+      const res = await fetch(`/api/cnpj/${requested}`);
+      // Ignore a stale response if the CNPJ changed under a slow request.
+      if (onlyDigits(cnpj) !== requested) return;
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         setLookup(null);
@@ -99,8 +127,10 @@ export function NewFornecedorModal({
       setRazao(data.razao_social);
       setFieldErrors((p) => ({ ...p, cnpj: "", razao: "" }));
     } catch {
-      setLookup(null);
-      setLookupError("Erro de rede ao consultar o CNPJ.");
+      if (onlyDigits(cnpj) === requested) {
+        setLookup(null);
+        setLookupError("Erro de rede ao consultar o CNPJ.");
+      }
     } finally {
       setVerifying(false);
     }
@@ -125,7 +155,9 @@ export function NewFornecedorModal({
 
     const payload = {
       razao_social: razao.trim(),
-      document: maskCNPJ(cnpjDigits),
+      // Always the verified CNPJ from the lookup — never the free input — so a
+      // persisted CNPJ can't diverge from the confirmed razão social.
+      document: maskCNPJ(lookup?.cnpj ?? cnpjDigits),
       banco: hasBank ? banco.trim() : null,
       agencia: hasBank ? agencia.trim() : null,
       conta: hasBank ? conta.trim() : null,
@@ -182,9 +214,14 @@ export function NewFornecedorModal({
       className="fixed inset-0 z-[55] flex items-start justify-center overflow-y-auto bg-black/45 p-4 backdrop-blur-[2px] sm:p-8"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="modal-enter w-full max-w-xl rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-fornecedor-title"
+        className="modal-enter w-full max-w-xl rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]"
+      >
         <div className="flex items-center justify-between border-b border-[var(--line)] px-6 py-4">
-          <h2 className="text-lg font-bold">Novo fornecedor</h2>
+          <h2 id="new-fornecedor-title" className="text-lg font-bold">Novo fornecedor</h2>
           <button
             onClick={onClose}
             aria-label="Fechar"
@@ -204,6 +241,7 @@ export function NewFornecedorModal({
           <Field label="CNPJ" error={fieldErrors.cnpj}>
             <div className="flex items-stretch gap-2">
               <input
+                ref={cnpjRef}
                 value={cnpj}
                 onChange={(e) => onCnpjChange(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void verify(); } }}
@@ -212,12 +250,12 @@ export function NewFornecedorModal({
                 className="input flex-1"
                 maxLength={18}
                 autoFocus
-                disabled={!!lookup}
+                disabled={!!lookup || verifying}
               />
               {lookup ? (
                 <button
                   type="button"
-                  onClick={() => { setLookup(null); setRazao(""); }}
+                  onClick={resetDownstream}
                   className="shrink-0 rounded-lg border border-[var(--line-strong)] px-4 text-sm font-medium transition hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 >
                   Alterar
@@ -227,6 +265,7 @@ export function NewFornecedorModal({
                   type="button"
                   onClick={() => void verify()}
                   disabled={!canVerify}
+                  aria-busy={verifying}
                   className="shrink-0 rounded-lg bg-[var(--accent)] px-4 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
                 >
                   {verifying ? "Verificando…" : "Verificar"}
@@ -247,7 +286,11 @@ export function NewFornecedorModal({
           {lookup && (
             <>
               {/* Confirmation card */}
-              <div className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-4 py-3">
+              <div
+                role="status"
+                aria-live="polite"
+                className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-4 py-3"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-semibold">
                     {lookup.nome_fantasia || lookup.razao_social}
@@ -404,7 +447,7 @@ export function NewFornecedorModal({
           {contractWarning && (
             <p
               role="alert"
-              className="rounded-lg border border-[var(--awaiting-payment)] bg-[var(--pending-soft)] px-4 py-2.5 text-sm text-[var(--pending-text-strong)]"
+              className="rounded-lg border border-[var(--pending)] bg-[var(--pending-soft)] px-4 py-2.5 text-sm text-[var(--pending-text-strong)]"
             >
               Fornecedor cadastrado. {contractWarning}
             </p>
