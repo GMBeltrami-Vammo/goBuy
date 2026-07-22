@@ -9,8 +9,8 @@ export const metadata = { title: "Cobranças — goBuy" };
 export default async function CobrancasPage() {
   const ctx = await getSessionContext();
   if (!ctx) redirect("/login");
-  // Heads and full-app admins may see the demo; nobody else.
-  if (!ctx.isHead && !ctx.isFullAppAdmin) redirect("/");
+  // Heads, full-app admins, and the RH approver may see the demo; nobody else.
+  if (!ctx.isHead && !ctx.isFullAppAdmin && !ctx.isRhViewer) redirect("/");
 
   // All active cost centers — used to propose a target CC when reclassifying.
   const { data: allCostCenters } = await supabaseAdmin()

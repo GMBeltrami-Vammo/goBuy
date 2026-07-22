@@ -10,6 +10,7 @@ export function NavTabs({
   isAdmin,
   isFullAppAdmin,
   isReclassifier,
+  isRhViewer,
 }: {
   isHead: boolean;
   canFinance: boolean;
@@ -17,6 +18,7 @@ export function NavTabs({
   isAdmin: boolean;
   isFullAppAdmin: boolean;
   isReclassifier: boolean;
+  isRhViewer: boolean;
 }) {
   const pathname = usePathname();
 
@@ -33,7 +35,7 @@ export function NavTabs({
         { href: "/reclassificacoes", label: "Reclassificações (demo)" },
       ]
     : [
-        ...(isHead ? [{ href: "/cobrancas", label: "Cobranças" }] : []),
+        ...(isHead || isRhViewer ? [{ href: "/cobrancas", label: "Cobranças" }] : []),
         ...(isReclassifier ? [{ href: "/reclassificacoes", label: "Reclassificações" }] : []),
       ];
 

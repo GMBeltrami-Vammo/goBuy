@@ -10,6 +10,11 @@ const HEAD_APPROVAL_WEBHOOK_URL =
   process.env.HEAD_APPROVAL_WEBHOOK_URL ??
   "https://script.google.com/macros/s/AKfycbzR6GltHoDmUOoDmJw3Y_DH6PP3vozwkXRk9zm3d1Ff1iVFoPj0yhTEVyG7g8tO4BVp/exec";
 
+// Confidential RH charges (sheet "RH") write back to a separate Apps Script.
+const RH_WEBHOOK_URL =
+  process.env.HEAD_APPROVAL_WEBHOOK_URL_RH ??
+  "https://script.google.com/macros/s/AKfycbxXoFvQem9Ol2_uwdyID3yNIby0esRHNFTXeNxbbDV8LJlFTppn5gftSIRTOgNa-OwC/exec";
+
 /** Outcome of a write-back attempt. Surfaced in the decide response so a failure
  *  is diagnosable (it used to be visible only in Vercel logs). */
 export type SheetWriteResult =
@@ -39,6 +44,7 @@ export async function writeChargeToSheet(charge: {
   decided_at: string | null;
   due_date: string | null;
   reclassified_cc_code: string | null;
+  sheet_name: string | null;
   action: "approve" | "deny";
 }): Promise<SheetWriteResult> {
   if (charge.sheet_written_at) return { ok: true, already: true };
@@ -66,8 +72,11 @@ export async function writeChargeToSheet(charge: {
     head_approval_time = headApprovalTimeString(approvalIso, charge.due_date, newPaymentDate, rescheduled);
   }
 
+  // Confidential RH charges write back to their own Apps Script.
+  const webhookUrl = charge.sheet_name === "RH" ? RH_WEBHOOK_URL : HEAD_APPROVAL_WEBHOOK_URL;
+
   try {
-    const res = await fetch(HEAD_APPROVAL_WEBHOOK_URL, {
+    const res = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       // new_cc: the reassigned CC code when the charge went through

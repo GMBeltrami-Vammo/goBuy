@@ -16,7 +16,7 @@ export default async function HomePage({
   // Non-admins never see the full app. Heads go to the charges demo,
   // reclassifiers to their queue; everyone else gets a friendly no-access screen.
   if (!ctx.isFullAppAdmin) {
-    if (ctx.isHead) redirect("/cobrancas");
+    if (ctx.isHead || ctx.isRhViewer) redirect("/cobrancas");
     if (ctx.isReclassifier) redirect("/reclassificacoes");
     return <NoAccess firstName={ctx.fullName.split(" ")[0]} />;
   }

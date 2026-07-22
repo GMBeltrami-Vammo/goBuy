@@ -84,6 +84,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         isAdmin={isAdmin}
         isFullAppAdmin={ctx.isFullAppAdmin}
         isReclassifier={ctx.isReclassifier}
+        isRhViewer={ctx.isRhViewer}
       />
 
       <main className="flex-1 pb-20 pt-8">{children}</main>

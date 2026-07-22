@@ -11,7 +11,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 const isQuietHour = (hour: number): boolean => hour < 9 || hour >= 19;
 
 const CHARGE_SELECT =
-  "id, display_id, supplier_name, amount, currency, due_date, created_at, observation, cost_center_id, cost_centers(code, name)";
+  "id, display_id, supplier_name, amount, currency, due_date, created_at, observation, sheet_name, cost_center_id, cost_centers(code, name)";
 
 interface ChargeRow {
   id: string;
@@ -22,6 +22,7 @@ interface ChargeRow {
   due_date: string | null;
   created_at: string;
   observation: string | null;
+  sheet_name: string | null;
   cost_center_id: number;
   cost_centers?: { code: string; name: string } | null;
   status?: string;
@@ -77,6 +78,9 @@ export async function notifyChargeIngested(chargeId: string): Promise<void> {
   const { data } = await admin.from("incoming_charges").select(CHARGE_SELECT).eq("id", chargeId).maybeSingle();
   if (!data) return;
   const charge = data as unknown as ChargeRow;
+
+  // Confidential RH charges must never notify CC heads (they can't see them).
+  if (charge.sheet_name === "RH") return;
 
   const heads = await optedInHeads(charge.cost_center_id);
   if (heads.length === 0) return;

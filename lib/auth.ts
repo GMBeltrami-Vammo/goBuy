@@ -16,6 +16,10 @@ const FULL_APP_ADMINS = (process.env.FULL_APP_ADMINS ?? "")
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
 
+// The RH approver — sees ONLY confidential "RH" charges (across all CCs) and
+// decides them. Kept in sync with finance.is_rh_viewer() in the DB.
+const RH_VIEWER_EMAIL = "gabriela@vammo.com";
+
 /**
  * Resolves the signed-in user's capabilities (head centers + roles).
  * Returns null when there is no valid @vammo.com session.
@@ -50,6 +54,7 @@ export const getSessionContext = cache(async (): Promise<SessionContext | null> 
     roles,
     isFullAppAdmin: FULL_APP_ADMINS.includes(email),
     isReclassifier: roles.includes("reclassifier"),
+    isRhViewer: email === RH_VIEWER_EMAIL,
     supabaseToken: session.supabaseToken ?? "",  // "" → unauthenticated Supabase client; RLS blocks all reads
   };
 });

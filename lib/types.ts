@@ -180,6 +180,8 @@ export interface SessionContext {
   isFullAppAdmin: boolean;
   /** Has the reclassifier role → may assign new CCs to charges in reclassification. */
   isReclassifier: boolean;
+  /** The RH approver → sees ONLY confidential "RH" charges and decides them. */
+  isRhViewer: boolean;
   supabaseToken: string;
 }
 

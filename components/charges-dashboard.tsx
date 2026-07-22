@@ -697,7 +697,14 @@ export function ChargesDashboard({
                         {c.request_date ? brtDateTimeBR(c.request_date) : "—"}
                       </td>
                       <td className="px-2 py-3.5">
-                        <div className="text-sm font-medium">{c.supplier_name}</div>
+                        <div className="text-sm font-medium">
+                          {c.supplier_name}
+                          {c.sheet_name === "RH" && (
+                            <span className="ml-2 rounded bg-[var(--rejected-soft)] px-1.5 py-0.5 v-tabular text-[9px] font-bold uppercase tracking-wider text-[var(--rejected)]">
+                              RH · confidencial
+                            </span>
+                          )}
+                        </div>
                         {c.nf_number && <div className="text-xs text-[var(--muted)]">NF {c.nf_number}</div>}
                         {c.description && (
                           <div className="max-w-[28ch] truncate text-xs text-[var(--muted)]" title={c.description}>{c.description}</div>
@@ -771,7 +778,7 @@ export function ChargesDashboard({
                             >
                               Recusar
                             </button>
-                            {!c.is_rateio && (
+                            {!c.is_rateio && c.sheet_name !== "RH" && (
                               <button
                                 onClick={() => openReclassify(c)}
                                 disabled={busyIds.has(c.id)}
