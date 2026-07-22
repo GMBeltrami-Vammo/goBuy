@@ -64,6 +64,66 @@ function fmtMoney(n: number, currency: string): string {
   }
 }
 
+// ─── Pending-queue sorting & search ───────────────────────────────────────────
+type SortField = "due" | "request" | "payment" | "amount" | "supplier" | "cc";
+type SortDir = "asc" | "desc";
+type StatusFilter = "all" | "pending" | "reclassifying";
+
+const SORT_LABELS: Record<SortField, string> = {
+  due: "Vencimento",
+  request: "Data da solicitação",
+  payment: "Data de pagamento",
+  amount: "Valor",
+  supplier: "Fornecedor",
+  cc: "Centro de custo",
+};
+
+// The value a charge sorts on for a given field. Dates are yyyy-mm-dd (or ISO for
+// request_date) so lexicographic order is chronological; amount is numeric.
+// "" marks a missing key so it can be pushed to the end regardless of direction.
+function chargeSortKey(c: IncomingCharge, field: SortField, todayYmd: string): string | number {
+  switch (field) {
+    case "due":
+      return c.due_date ?? "";
+    case "request":
+      return c.request_date ?? "";
+    case "payment":
+      return paymentSchedule(todayYmd, c.due_date).newPaymentDate;
+    case "amount":
+      return Number(c.amount) || 0;
+    case "supplier":
+      return (c.supplier_name ?? "").toLowerCase();
+    case "cc":
+      return c.cost_centers?.code ?? "";
+  }
+}
+
+function compareCharges(
+  a: IncomingCharge,
+  b: IncomingCharge,
+  field: SortField,
+  dir: SortDir,
+  todayYmd: string,
+): number {
+  const ka = chargeSortKey(a, field, todayYmd);
+  const kb = chargeSortKey(b, field, todayYmd);
+  // Missing keys ("") always sort last, in both directions.
+  const aEmpty = ka === "";
+  const bEmpty = kb === "";
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+  const cmp =
+    typeof ka === "number" && typeof kb === "number" ? ka - kb : String(ka).localeCompare(String(kb));
+  return dir === "asc" ? cmp : -cmp;
+}
+
+// Free-text match across the fields shown in the row.
+function matchesChargeSearch(c: IncomingCharge, q: string): boolean {
+  return [c.display_id, c.supplier_name, c.nf_number, c.description, c.observation, c.cost_centers?.code, c.cost_centers?.name]
+    .some((v) => (v ?? "").toString().toLowerCase().includes(q));
+}
+
 export function ChargesDashboard({
   email,
   supabaseToken,
@@ -93,6 +153,12 @@ export function ChargesDashboard({
   const [selectedCcs, setSelectedCcs] = useState<Set<number>>(new Set());
   const [dueFrom, setDueFrom] = useState("");
   const [dueTo, setDueTo] = useState("");
+  // Pending-queue search / status filter / sort (default: Vencimento ascending,
+  // matching the load order).
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [sortField, setSortField] = useState<SortField>("due");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
   // Per-head Slack notification preference (null = still loading; default off).
   const [slackOn, setSlackOn] = useState<boolean | null>(null);
   const [slackBusy, setSlackBusy] = useState(false);
@@ -110,6 +176,9 @@ export function ChargesDashboard({
   const hasCenters = centerIds.length > 0;
   // Heads and the RH approver may toggle their Slack notifications.
   const canSlack = hasCenters || isRhViewer;
+  // Today's BRT calendar date — a Vencimento before it is overdue; also the basis
+  // for the projected payment date (used in the table and the payment-date sort).
+  const todayYmd = brtYmd(new Date().toISOString());
 
   const load = useCallback(async () => {
     const supabase = supabaseBrowser(supabaseToken);
@@ -249,16 +318,25 @@ export function ChargesDashboard({
     return true;
   };
   const dateInvalid = isInvalidDMY(dueFrom) || isInvalidDMY(dueTo);
-  const anyTableFilter = selectedCcs.size > 0 || !!dueFrom || !!dueTo;
+  const searchQ = search.trim().toLowerCase();
+  const anyTableFilter = selectedCcs.size > 0 || !!dueFrom || !!dueTo || !!searchQ || statusFilter !== "all";
 
   // The queue shows pending charges AND those in reclassification (blocked, but
-  // still the head's to track). Decididas = only approved/denied.
+  // still the head's to track). Filtered by CC, Vencimento range, status and free
+  // text, then sorted by the chosen field/direction. Decididas = only approved/denied.
   const pending = useMemo(
-    () =>
-      (charges ?? []).filter(
-        (c) => (c.status === "pending" || c.status === "reclassifying") && isVisible(c.cost_center_id) && inDueRange(c),
-      ),
-    [charges, selKey, dueFrom, dueTo],
+    () => {
+      const list = (charges ?? []).filter(
+        (c) =>
+          (c.status === "pending" || c.status === "reclassifying") &&
+          isVisible(c.cost_center_id) &&
+          inDueRange(c) &&
+          (statusFilter === "all" || c.status === statusFilter) &&
+          (searchQ === "" || matchesChargeSearch(c, searchQ)),
+      );
+      return list.sort((a, b) => compareCharges(a, b, sortField, sortDir, todayYmd));
+    },
+    [charges, selKey, dueFrom, dueTo, searchQ, statusFilter, sortField, sortDir, todayYmd],
   );
   const decided = useMemo(
     () =>
@@ -268,7 +346,10 @@ export function ChargesDashboard({
     [charges, selKey, dueFrom, dueTo],
   );
 
-  const pendingPager = usePagination(pending, `pending|${selKey}|${dueFrom}|${dueTo}`);
+  const pendingPager = usePagination(
+    pending,
+    `pending|${selKey}|${dueFrom}|${dueTo}|${searchQ}|${statusFilter}|${sortField}|${sortDir}`,
+  );
   const decidedPager = usePagination(decided, `decided|${selKey}|${dueFrom}|${dueTo}`);
 
   const flash = (msg: string) => {
@@ -447,8 +528,6 @@ export function ChargesDashboard({
   };
 
   const loading = charges === null;
-  // Today's BRT calendar date — a Vencimento before it is overdue.
-  const todayYmd = brtYmd(new Date().toISOString());
 
   return (
     <div>
@@ -620,12 +699,30 @@ export function ChargesDashboard({
             Aguardando sua decisão
           </h2>
           <div className="flex flex-wrap items-center gap-1.5">
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar fornecedor, NF, ID…"
+              aria-label="Buscar nas cobranças pendentes"
+              className="w-52 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2.5 py-1 text-[11px] text-[var(--ink)] outline-none transition placeholder:text-[var(--faint)] focus:border-[var(--accent)]"
+            />
             <CcMultiSelect
               centers={filterableCenters}
               selected={selectedCcs}
               onToggle={toggleCc}
               onClear={() => setSelectedCcs(new Set())}
             />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+              aria-label="Filtrar por status"
+              className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] font-medium text-[var(--ink)] outline-none transition focus:border-[var(--accent)]"
+            >
+              <option value="all">Todas</option>
+              <option value="pending">Pendentes</option>
+              <option value="reclassifying">Em mudança de CC</option>
+            </select>
             <span className="ml-1 v-tabular text-[10px] uppercase tracking-[0.15em] text-[var(--faint)]">Venc.</span>
             <input
               type="text"
@@ -659,12 +756,42 @@ export function ChargesDashboard({
             )}
             {anyTableFilter && (
               <button
-                onClick={() => { setSelectedCcs(new Set()); setDueFrom(""); setDueTo(""); }}
+                onClick={() => {
+                  setSelectedCcs(new Set());
+                  setDueFrom("");
+                  setDueTo("");
+                  setSearch("");
+                  setStatusFilter("all");
+                }}
                 className="ml-1 rounded text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               >
                 Limpar filtros
               </button>
             )}
+            <div className="ml-auto flex items-center gap-1.5">
+              <label htmlFor="pending-sort" className="v-tabular text-[10px] uppercase tracking-[0.15em] text-[var(--faint)]">
+                Ordenar por
+              </label>
+              <select
+                id="pending-sort"
+                value={sortField}
+                onChange={(e) => setSortField(e.target.value as SortField)}
+                aria-label="Ordenar cobranças por"
+                className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] font-medium text-[var(--ink)] outline-none transition focus:border-[var(--accent)]"
+              >
+                {(Object.keys(SORT_LABELS) as SortField[]).map((f) => (
+                  <option key={f} value={f}>{SORT_LABELS[f]}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+                aria-label={sortDir === "asc" ? "Ordem crescente (toque para inverter)" : "Ordem decrescente (toque para inverter)"}
+                title={sortDir === "asc" ? "Crescente — toque para inverter" : "Decrescente — toque para inverter"}
+                className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] font-bold text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              >
+                {sortDir === "asc" ? "↑" : "↓"}
+              </button>
+            </div>
           </div>
         </div>
 
