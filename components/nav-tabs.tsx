@@ -9,17 +9,19 @@ export function NavTabs({
   canFiscal,
   isAdmin,
   isFullAppAdmin,
+  isReclassifier,
 }: {
   isHead: boolean;
   canFinance: boolean;
   canFiscal: boolean;
   isAdmin: boolean;
   isFullAppAdmin: boolean;
+  isReclassifier: boolean;
 }) {
   const pathname = usePathname();
 
-  // Full-app admins get the current tabs + the demo. Heads (non-admin) get only
-  // the demo. Everyone else gets no tabs (the NoAccess screen renders bare).
+  // Full-app admins get the current tabs + both demo surfaces. Heads/reclassifiers
+  // (non-admin) get only their demo surface(s). Everyone else gets no tabs.
   const tabs = isFullAppAdmin
     ? [
         { href: "/", label: "Minhas solicitações" },
@@ -28,10 +30,12 @@ export function NavTabs({
         ...(canFinance ? [{ href: "/fornecedores", label: "Fornecedores" }] : []),
         ...(isAdmin ? [{ href: "/admin", label: "Admin" }] : []),
         { href: "/cobrancas", label: "Cobranças (demo)" },
+        { href: "/reclassificacoes", label: "Reclassificações (demo)" },
       ]
-    : isHead
-      ? [{ href: "/cobrancas", label: "Cobranças" }]
-      : [];
+    : [
+        ...(isHead ? [{ href: "/cobrancas", label: "Cobranças" }] : []),
+        ...(isReclassifier ? [{ href: "/reclassificacoes", label: "Reclassificações" }] : []),
+      ];
 
   return (
     <nav className="flex gap-1 border-b border-[var(--line)]">

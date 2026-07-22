@@ -35,7 +35,7 @@ export async function applyChargeDecision(
   const admin = supabaseAdmin();
   const { data: charge } = await admin
     .from("incoming_charges")
-    .select("display_id, sheet_row, sheet_written_at, created_at, decided_at, due_date")
+    .select("display_id, sheet_row, sheet_written_at, created_at, decided_at, due_date, reclassified_cc_code")
     .eq("id", chargeId)
     .maybeSingle();
 
@@ -48,6 +48,7 @@ export async function applyChargeDecision(
       created_at: charge.created_at as string | null,
       decided_at: charge.decided_at as string | null,
       due_date: charge.due_date as string | null,
+      reclassified_cc_code: charge.reclassified_cc_code as string | null,
       action,
     });
   }

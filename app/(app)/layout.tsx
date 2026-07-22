@@ -83,6 +83,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         canFiscal={canFiscal}
         isAdmin={isAdmin}
         isFullAppAdmin={ctx.isFullAppAdmin}
+        isReclassifier={ctx.isReclassifier}
       />
 
       <main className="flex-1 pb-20 pt-8">{children}</main>

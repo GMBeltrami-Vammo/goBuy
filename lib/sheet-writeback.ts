@@ -38,6 +38,7 @@ export async function writeChargeToSheet(charge: {
   created_at: string | null;
   decided_at: string | null;
   due_date: string | null;
+  reclassified_cc_code: string | null;
   action: "approve" | "deny";
 }): Promise<SheetWriteResult> {
   if (charge.sheet_written_at) return { ok: true, already: true };
@@ -69,7 +70,15 @@ export async function writeChargeToSheet(charge: {
     const res = await fetch(HEAD_APPROVAL_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ row: charge.sheet_row, secret, head_approval_time, payment_date }),
+      // new_cc: the reassigned CC code when the charge went through
+      // reclassification, "" otherwise (always present).
+      body: JSON.stringify({
+        row: charge.sheet_row,
+        secret,
+        head_approval_time,
+        payment_date,
+        new_cc: charge.reclassified_cc_code ?? "",
+      }),
       redirect: "follow",
     });
     const result = (await res.json().catch(() => null)) as

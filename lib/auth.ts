@@ -49,6 +49,7 @@ export const getSessionContext = cache(async (): Promise<SessionContext | null> 
     headCenterIds,
     roles,
     isFullAppAdmin: FULL_APP_ADMINS.includes(email),
+    isReclassifier: roles.includes("reclassifier"),
     supabaseToken: session.supabaseToken ?? "",  // "" → unauthenticated Supabase client; RLS blocks all reads
   };
 });

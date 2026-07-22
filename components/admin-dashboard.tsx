@@ -6,7 +6,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { StatusBadge } from "@/components/status-badge";
 import type { RequestStatus } from "@/lib/types";
 
-type AppRole = "finance" | "fiscal" | "admin";
+type AppRole = "finance" | "fiscal" | "admin" | "reclassifier";
 
 interface RoleRow {
   user_email: string;
@@ -56,6 +56,7 @@ const ROLE_LABEL: Record<AppRole, string> = {
   finance: "Financeiro",
   fiscal: "Fiscal",
   admin: "Admin",
+  reclassifier: "Reclassificador",
 };
 // Dedicated role-badge tokens — distinct from every request-status color
 // (--approved, --awaiting-payment, etc.) so a role chip can't be misread as
@@ -64,6 +65,7 @@ const ROLE_CHIP: Record<AppRole, string> = {
   finance: "bg-[var(--role-finance-soft)] text-[var(--role-finance)]",
   fiscal: "bg-[var(--accent-soft)] text-[var(--accent)]",
   admin: "bg-[var(--role-admin-soft)] text-[var(--role-admin)]",
+  reclassifier: "bg-[var(--pending-soft)] text-[var(--pending-text-strong)]",
 };
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
@@ -599,6 +601,7 @@ export function AdminDashboard() {
               <option value="fiscal">Fiscal</option>
               <option value="finance">Financeiro</option>
               <option value="admin">Admin</option>
+              <option value="reclassifier">Reclassificador</option>
             </Select>
             <Btn type="submit" variant="primary" disabled={roleLoading}>
               {roleLoading ? "Adicionando..." : "Adicionar role"}

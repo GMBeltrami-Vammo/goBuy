@@ -52,12 +52,27 @@ function normalizeCurrency(raw: unknown): string {
   return /^[A-Z]{2,10}$/.test(s) ? s : "BRL";
 }
 
+/**
+ * Parse the API's request_date ("DD/MM/YYYY HH:MM:SS", BRT wall-clock) into an
+ * ISO timestamp with the -03:00 offset so it stores the correct instant.
+ * Seconds optional. Returns null when missing/invalid.
+ */
+function parseRequestDate(raw: unknown): string | null {
+  const s = String(raw ?? "").trim();
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  const [, dd, mm, yyyy, hh, mi, ss] = m;
+  if (Number(mm) < 1 || Number(mm) > 12 || Number(dd) < 1 || Number(dd) > 31) return null;
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss ?? "00"}-03:00`;
+}
+
 interface ChargePayload {
   supplier_name?: string;
   nf_number?: string;
   description?: string;
   cost_center?: string;
   due_date?: string;
+  request_date?: string;
   attachment_url?: string;
   email?: string;
   payment_method?: string;
@@ -136,6 +151,9 @@ export async function POST(request: Request) {
     sheet_row = Number.isFinite(n) ? n : null;
   }
 
+  // Rateio charges can't be reclassified — flag them so the UI/RPC both enforce it.
+  const is_rateio = rateio.length > 0;
+
   // Upsert with ON CONFLICT DO NOTHING on (sheet_name, sheet_row): a re-sent
   // source row is skipped rather than duplicated. On a skip, PostgREST returns
   // no row → we report success (200) so the sender treats it as done.
@@ -149,6 +167,8 @@ export async function POST(request: Request) {
         cost_center_id: cc.id,
         cost_center_input: ccInput,
         due_date,
+        request_date: parseRequestDate(body.request_date),
+        is_rateio,
         attachment_url: str(body.attachment_url),
         boleto_url: str(body.boleto_url),
         email: str(body.email),

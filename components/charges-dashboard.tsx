@@ -26,17 +26,19 @@ const HeadAggregateChart = dynamic(
 
 // A charge consumes budget while approved OR pending (pending = "at risk",
 // firms up on approval). Denied never consumes.
-const COMMITTED_STATUSES = new Set<IncomingCharge["status"]>(["approved", "pending"]);
+const COMMITTED_STATUSES = new Set<IncomingCharge["status"]>(["approved", "pending", "reclassifying"]);
 
 const CHARGE_STATUS_LABEL: Record<IncomingCharge["status"], string> = {
   pending: "Pendente",
   approved: "Aprovada",
   denied: "Recusada",
+  reclassifying: "Em mudança de CC",
 };
 const CHARGE_STATUS_TONE: Record<IncomingCharge["status"], string> = {
   pending: "pending",
   approved: "approved",
   denied: "rejected",
+  reclassifying: "pending",
 };
 
 function ChargeStatusBadge({ status }: { status: IncomingCharge["status"] }) {
@@ -66,10 +68,13 @@ export function ChargesDashboard({
   email,
   supabaseToken,
   centerIds,
+  allCostCenters,
 }: {
   email: string;
   supabaseToken: string;
   centerIds: number[];
+  /** All active cost centers — for proposing a target CC when reclassifying. */
+  allCostCenters: Pick<CostCenter, "id" | "code" | "name" | "department">[];
 }) {
   const [charges, setCharges] = useState<IncomingCharge[] | null>(null);
   const [centers, setCenters] = useState<CostCenter[]>([]);
@@ -88,6 +93,9 @@ export function ChargesDashboard({
   // Per-head Slack notification preference (null = still loading; default off).
   const [slackOn, setSlackOn] = useState<boolean | null>(null);
   const [slackBusy, setSlackBusy] = useState(false);
+  // Reclassification request modal (head → proposes an optional target CC).
+  const [reclassTarget, setReclassTarget] = useState<IncomingCharge | null>(null);
+  const [reclassProposedCc, setReclassProposedCc] = useState("");
   const queueRef = useRef<HTMLDivElement>(null);
 
   const monthStart = useMemo(() => {
@@ -238,12 +246,20 @@ export function ChargesDashboard({
   const dateInvalid = isInvalidDMY(dueFrom) || isInvalidDMY(dueTo);
   const anyTableFilter = selectedCcs.size > 0 || !!dueFrom || !!dueTo;
 
+  // The queue shows pending charges AND those in reclassification (blocked, but
+  // still the head's to track). Decididas = only approved/denied.
   const pending = useMemo(
-    () => (charges ?? []).filter((c) => c.status === "pending" && isVisible(c.cost_center_id) && inDueRange(c)),
+    () =>
+      (charges ?? []).filter(
+        (c) => (c.status === "pending" || c.status === "reclassifying") && isVisible(c.cost_center_id) && inDueRange(c),
+      ),
     [charges, selKey, dueFrom, dueTo],
   );
   const decided = useMemo(
-    () => (charges ?? []).filter((c) => c.status !== "pending" && isVisible(c.cost_center_id) && inDueRange(c)),
+    () =>
+      (charges ?? []).filter(
+        (c) => (c.status === "approved" || c.status === "denied") && isVisible(c.cost_center_id) && inDueRange(c),
+      ),
     [charges, selKey, dueFrom, dueTo],
   );
 
@@ -338,6 +354,52 @@ export function ChargesDashboard({
     setDenyReason("");
     setDenyTarget(c);
   };
+
+  const openReclassify = (c: IncomingCharge) => {
+    setReclassProposedCc("");
+    setReclassTarget(c);
+  };
+
+  // Optimistic: mark as "Em mudança de CC" and request reclassification. On
+  // success the head loses the approve/deny buttons; a reclassifier assigns the
+  // new CC and it returns to the (new) head as pending.
+  const confirmReclassify = async () => {
+    if (!reclassTarget || busyIds.has(reclassTarget.id)) return;
+    const target = reclassTarget;
+    const proposed = reclassProposedCc ? Number(reclassProposedCc) : null;
+    setReclassTarget(null);
+    setBusyIds((prev) => new Set(prev).add(target.id));
+    setCharges((prev) =>
+      prev?.map((x) => (x.id === target.id ? { ...x, status: "reclassifying" as const } : x)) ?? prev,
+    );
+    const { error } = await supabaseBrowser(supabaseToken).rpc("request_charge_reclassification", {
+      p_id: target.id,
+      p_proposed_cc_id: proposed,
+    });
+    setBusyIds((prev) => {
+      const n = new Set(prev);
+      n.delete(target.id);
+      return n;
+    });
+    if (error) {
+      setCharges((prev) => prev?.map((x) => (x.id === target.id ? target : x)) ?? prev);
+      flash("Não foi possível solicitar a reclassificação.");
+      return;
+    }
+    flash(`${target.display_id} enviada para reclassificação.`);
+    void load();
+  };
+
+  // All active CCs grouped by department, for the reclassification proposal.
+  const allCcGrouped = useMemo(() => {
+    const map = new Map<string, typeof allCostCenters>();
+    for (const cc of allCostCenters) {
+      const list = map.get(cc.department) ?? [];
+      list.push(cc);
+      map.set(cc.department, list);
+    }
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [allCostCenters]);
 
   const toggleCc = (id: number) =>
     setSelectedCcs((prev) => {
@@ -618,18 +680,22 @@ export function ChargesDashboard({
                 <thead className="hidden sm:table-header-group">
                   <tr className="border-b border-[var(--line)]">
                     <th scope="col" className="w-[80px] px-5 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">ID</th>
+                    <th scope="col" className="w-[120px] px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Data da solicitação</th>
                     <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Fornecedor</th>
                     <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Centro de custo</th>
                     <th scope="col" className="w-[100px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Aprovar até</th>
                     <th scope="col" className="w-[110px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Data de pagamento</th>
                     <th scope="col" className="w-[110px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Valor</th>
-                    <th scope="col" className="w-[180px] px-5 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Ação</th>
+                    <th scope="col" className="w-[220px] px-5 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Ação</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pendingPager.pageItems.map((c) => (
                     <tr key={c.id} className="border-b border-[var(--line)] last:border-b-0 align-top">
                       <td className="px-5 py-3.5 v-tabular text-xs font-semibold text-[var(--accent)]">{c.display_id}</td>
+                      <td className="px-2 py-3.5 v-tabular text-[11px] text-[var(--muted)]">
+                        {c.request_date ? brtDateTimeBR(c.request_date) : "—"}
+                      </td>
                       <td className="px-2 py-3.5">
                         <div className="text-sm font-medium">{c.supplier_name}</div>
                         {c.nf_number && <div className="text-xs text-[var(--muted)]">NF {c.nf_number}</div>}
@@ -685,22 +751,38 @@ export function ChargesDashboard({
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-sm font-bold">{fmtMoney(Number(c.amount), c.currency)}</td>
                       <td className="px-5 py-3.5">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            onClick={() => void approve(c)}
-                            disabled={busyIds.has(c.id)}
-                            className="rounded-lg bg-[var(--approved)] px-3 py-1.5 text-xs font-bold text-[var(--on-status)] transition hover:opacity-90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-                          >
-                            {busyIds.has(c.id) ? "…" : "Aprovar"}
-                          </button>
-                          <button
-                            onClick={() => requestDeny(c)}
-                            disabled={busyIds.has(c.id)}
-                            className="rounded-lg border border-[var(--rejected)] px-3 py-1.5 text-xs font-bold text-[var(--rejected)] transition hover:bg-[var(--rejected-soft)] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-                          >
-                            Recusar
-                          </button>
-                        </div>
+                        {c.status === "reclassifying" ? (
+                          <div className="flex justify-end">
+                            <ChargeStatusBadge status="reclassifying" />
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap justify-end gap-1.5">
+                            <button
+                              onClick={() => void approve(c)}
+                              disabled={busyIds.has(c.id)}
+                              className="rounded-lg bg-[var(--approved)] px-3 py-1.5 text-xs font-bold text-[var(--on-status)] transition hover:opacity-90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                            >
+                              {busyIds.has(c.id) ? "…" : "Aprovar"}
+                            </button>
+                            <button
+                              onClick={() => requestDeny(c)}
+                              disabled={busyIds.has(c.id)}
+                              className="rounded-lg border border-[var(--rejected)] px-3 py-1.5 text-xs font-bold text-[var(--rejected)] transition hover:bg-[var(--rejected-soft)] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                            >
+                              Recusar
+                            </button>
+                            {!c.is_rateio && (
+                              <button
+                                onClick={() => openReclassify(c)}
+                                disabled={busyIds.has(c.id)}
+                                title="Solicitar mudança de centro de custo"
+                                className="rounded-lg border border-[var(--line-strong)] px-3 py-1.5 text-xs font-medium text-[var(--muted)] transition hover:bg-[var(--surface-2)] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                              >
+                                Reclassificar
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -733,6 +815,9 @@ export function ChargesDashboard({
                 {decidedPager.pageItems.map((c) => (
                   <tr key={c.id} className="border-b border-[var(--line)] last:border-b-0">
                     <td className="w-[80px] px-5 py-3 v-tabular text-xs font-semibold text-[var(--accent)]">{c.display_id}</td>
+                    <td className="hidden px-2 py-3 v-tabular text-[11px] text-[var(--muted)] sm:table-cell">
+                      {c.request_date ? brtDateTimeBR(c.request_date) : "—"}
+                    </td>
                     <td className="px-2 py-3">
                       <div className="text-sm">{c.supplier_name}</div>
                       <div className="text-[11px] text-[var(--faint)]">
@@ -796,6 +881,37 @@ export function ChargesDashboard({
             autoFocus
             className="input min-h-[4rem] w-full resize-y text-sm"
           />
+        </ConfirmDialog>
+      )}
+
+      {reclassTarget && (
+        <ConfirmDialog
+          title={`Reclassificar ${reclassTarget.display_id}?`}
+          message="A cobrança sai da sua fila e vai para reclassificação — Bruna ou Maria atribuirão o novo centro de custo. Você pode sugerir um CC abaixo (opcional)."
+          confirmLabel="Solicitar reclassificação"
+          busy={busyIds.has(reclassTarget.id)}
+          onConfirm={() => void confirmReclassify()}
+          onCancel={() => setReclassTarget(null)}
+        >
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-[var(--muted)]">Sugestão de novo CC (opcional)</span>
+            <select
+              value={reclassProposedCc}
+              onChange={(e) => setReclassProposedCc(e.target.value)}
+              className="input w-full text-sm"
+            >
+              <option value="">Sem sugestão</option>
+              {allCcGrouped.map(([dept, ccs]) => (
+                <optgroup key={dept} label={dept}>
+                  {ccs.map((cc) => (
+                    <option key={cc.id} value={cc.id}>
+                      {cc.code} — {cc.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
         </ConfirmDialog>
       )}
     </div>

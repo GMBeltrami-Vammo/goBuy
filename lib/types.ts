@@ -16,7 +16,7 @@ export type DocumentType =
   | "boleto"
   | "debit_note"
   | "other";
-export type AppRole = "finance" | "fiscal" | "admin";
+export type AppRole = "finance" | "fiscal" | "admin" | "reclassifier";
 export type PaymentMethod = "pix" | "transfer" | "boleto";
 
 export interface CostCenter {
@@ -178,6 +178,8 @@ export interface SessionContext {
   roles: AppRole[];
   /** Email is in the FULL_APP_ADMINS allowlist → may see the full (non-demo) app. */
   isFullAppAdmin: boolean;
+  /** Has the reclassifier role → may assign new CCs to charges in reclassification. */
+  isReclassifier: boolean;
   supabaseToken: string;
 }
 
@@ -200,7 +202,13 @@ export interface IncomingCharge {
   observation: string | null;
   sheet_name: string | null;
   sheet_row: number | null;
-  status: "pending" | "approved" | "denied";
+  status: "pending" | "approved" | "denied" | "reclassifying";
+  request_date: string | null;
+  is_rateio: boolean;
+  reclassified_cc_code: string;
+  original_cost_center_id: number | null;
+  reclass_proposed_cc_id: number | null;
+  reclass_requested_by: string | null;
   created_at: string;
   decided_at: string | null;
   decided_by_email: string | null;
