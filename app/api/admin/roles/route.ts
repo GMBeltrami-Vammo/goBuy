@@ -40,7 +40,7 @@ export async function GET() {
   });
 }
 
-const VALID_ROLES: AppRole[] = ["finance", "fiscal", "admin"];
+const VALID_ROLES: AppRole[] = ["finance", "fiscal", "admin", "reclassifier"];
 
 export async function POST(request: Request) {
   if (!isSameOrigin(request)) {
