@@ -25,6 +25,12 @@
       "skillPath": "plugins/frontend-design/skills/frontend-design/SKILL.md",
       "computedHash": "e8118284a6365753790d44bb2758a6032b3af27fa84696428d9233f2be0f4e78"
     },
+    "mcp-token-optimizer": {
+      "source": "local",
+      "sourceType": "local",
+      "skillPath": ".agents/skills/mcp-token-optimizer/SKILL.md",
+      "computedHash": "9f65013f39b8952bbc2ea1e4d16c8a45bf0c21ae21cd6e6318a5f7256aed2001"
+    },
     "nextjs-turbopack": {
       "source": "affaan-m/ECC",
       "sourceType": "github",

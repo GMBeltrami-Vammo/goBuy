@@ -53,17 +53,23 @@ function normalizeCurrency(raw: unknown): string {
 }
 
 /**
- * Parse the API's request_date ("DD/MM/YYYY HH:MM:SS", BRT wall-clock) into an
- * ISO timestamp with the -03:00 offset so it stores the correct instant.
- * Seconds optional. Returns null when missing/invalid.
+ * Parse the API's request_date into an ISO timestamp. Primary format is the
+ * Brazilian "DD/MM/YYYY HH:MM:SS" (BRT wall-clock → stored with the -03:00
+ * offset); time and seconds are optional. Falls back to anything Date.parse
+ * accepts (ISO 8601, RFC, JS Date strings) so a sender that emits a different
+ * shape isn't silently dropped. Returns null when missing/unparseable.
  */
 function parseRequestDate(raw: unknown): string | null {
   const s = String(raw ?? "").trim();
-  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
-  if (!m) return null;
-  const [, dd, mm, yyyy, hh, mi, ss] = m;
-  if (Number(mm) < 1 || Number(mm) > 12 || Number(dd) < 1 || Number(dd) > 31) return null;
-  return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss ?? "00"}-03:00`;
+  if (!s) return null;
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (m) {
+    const [, dd, mm, yyyy, hh, mi, ss] = m;
+    if (Number(mm) < 1 || Number(mm) > 12 || Number(dd) < 1 || Number(dd) > 31) return null;
+    return `${yyyy}-${mm}-${dd}T${hh ?? "00"}:${mi ?? "00"}:${ss ?? "00"}-03:00`;
+  }
+  const t = Date.parse(s);
+  return Number.isNaN(t) ? null : new Date(t).toISOString();
 }
 
 interface ChargePayload {

@@ -10,3 +10,6 @@ next-env.d.ts
 
 # Claude Code local session config (dev server launch config, etc.)
 .claude
+
+.vercel
+.env*

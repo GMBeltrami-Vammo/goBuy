@@ -1,0 +1,16 @@
+{"intent":"automatiza o tratamento de inadimplência com um loop diário","expected_skill":"vammo-loop-maker"}
+{"intent":"create a loop for weekly cabinet watchdog alerts","expected_skill":"vammo-loop-maker"}
+{"intent":"cria um loop de retenção para reportar churn toda semana","expected_skill":"vammo-loop-maker"}
+{"intent":"design a recurring ops report with Mind, Metabase, and Slack","expected_skill":"vammo-loop-maker"}
+{"intent":"promote an existing recurring action to higher autonomy","expected_skill":"vammo-loop-maker"}
+{"intent":"coloca a rotina manual de multas em piloto automático e manda report semanal","expected_skill":"vammo-loop-maker"}
+{"intent":"dry run a recurring Kustomer ticket loop that proposes Slack actions","expected_skill":"vammo-loop-maker"}
+{"intent":"make the cabinet error report dedupe cases from earlier runs","expected_skill":"vammo-loop-maker"}
+{"intent":"run recurring fleet integrity using BigQuery plus Jira instead of Metabase","expected_skill":"vammo-loop-maker"}
+{"intent":"adjust an existing Vammo loop reporting destination and run-page sharding","expected_skill":"vammo-loop-maker"}
+{"intent":"pausar temporariamente o loop de cobranças enquanto a fonte está indisponível","expected_skill":"vammo-loop-maker"}
+{"intent":"retirar o cabinet watchdog porque agora virou parte do fleet integrity","expected_skill":"vammo-loop-maker"}
+{"intent":"me mostra os loops, quem criou cada um e quais parecem zumbis","expected_skill":"vammo-loop-maker"}
+{"intent":"compare loop registry with recent run pages and surface orphan loops","expected_skill":"vammo-loop-maker"}
+{"intent":"cria um loop comigo e grava o owner como meu email da Vammo","expected_skill":"vammo-loop-maker"}
+{"intent":"tentar mudar um Vammo loop mesmo sem ser owner","expected_skill":"vammo-loop-maker"}
