@@ -116,7 +116,7 @@ export function ChargesDashboard({
     const [chargeRes, ccRes, budgetRes] = await Promise.all([
       supabase
         .from("incoming_charges")
-        .select("*, cost_centers(code, name, department)")
+        .select("*, cost_centers!incoming_charges_cost_center_id_fkey(code, name, department)")
         .order("due_date", { ascending: true })
         .limit(500),
       hasCenters

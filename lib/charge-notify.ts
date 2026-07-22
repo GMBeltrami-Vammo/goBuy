@@ -12,7 +12,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 const isQuietHour = (hour: number): boolean => hour < 9 || hour >= 19;
 
 const CHARGE_SELECT =
-  "id, display_id, supplier_name, amount, currency, due_date, created_at, observation, sheet_name, cost_center_id, cost_centers(code, name)";
+  "id, display_id, supplier_name, amount, currency, due_date, created_at, observation, sheet_name, cost_center_id, cost_centers!incoming_charges_cost_center_id_fkey(code, name)";
 
 interface ChargeRow {
   id: string;

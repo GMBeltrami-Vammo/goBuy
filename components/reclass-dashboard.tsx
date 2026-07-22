@@ -59,7 +59,7 @@ export function ReclassDashboard({
   const load = useCallback(async () => {
     const { data } = await supabaseBrowser(supabaseToken)
       .from("incoming_charges")
-      .select("*, cost_centers(code, name, department)")
+      .select("*, cost_centers!incoming_charges_cost_center_id_fkey(code, name, department)")
       .eq("status", "reclassifying")
       .order("reclass_requested_at", { ascending: true })
       .limit(500);
