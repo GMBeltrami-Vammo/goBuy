@@ -39,8 +39,12 @@ export const getSessionContext = cache(async (): Promise<SessionContext | null> 
     admin.from("user_roles").select("role").eq("user_email", email),
   ]);
 
-  const headCenterIds = (headRes.data ?? []).map((r) => r.cost_center_id as number);
+  const isRhViewer = email === RH_VIEWER_EMAIL;
   const roles = (rolesRes.data ?? []).map((r) => r.role as AppRole);
+  // The RH approver is a confidential RH-only viewer, never a normal CC head —
+  // even if seeded as head of the HR CCs — so they never see non-RH charges or
+  // budgets (RLS enforces the same). Empty their head centers here.
+  const headCenterIds = isRhViewer ? [] : (headRes.data ?? []).map((r) => r.cost_center_id as number);
 
   return {
     email,
@@ -51,7 +55,7 @@ export const getSessionContext = cache(async (): Promise<SessionContext | null> 
     roles,
     isFullAppAdmin: FULL_APP_ADMINS.includes(email),
     isReclassifier: roles.includes("reclassifier"),
-    isRhViewer: email === RH_VIEWER_EMAIL,
+    isRhViewer,
     supabaseToken: session.supabaseToken ?? "",  // "" → unauthenticated Supabase client; RLS blocks all reads
   };
 });

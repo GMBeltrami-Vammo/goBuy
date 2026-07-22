@@ -154,6 +154,12 @@ export async function POST(request: Request) {
   // Rateio charges can't be reclassified — flag them so the UI/RPC both enforce it.
   const is_rateio = rateio.length > 0;
 
+  // Canonicalize the confidential "RH" sheet tag: any casing/whitespace of "RH"
+  // is stored exactly as "RH" so the confidentiality checks (RLS + app) can't be
+  // defeated by a mis-cased tab name. Other sheet names keep their value.
+  const rawSheet = str(body.sheet);
+  const sheet_name = rawSheet && rawSheet.toUpperCase() === "RH" ? "RH" : rawSheet;
+
   // Upsert with ON CONFLICT DO NOTHING on (sheet_name, sheet_row): a re-sent
   // source row is skipped rather than duplicated. On a skip, PostgREST returns
   // no row → we report success (200) so the sender treats it as done.
@@ -177,7 +183,7 @@ export async function POST(request: Request) {
         amount,
         currency: normalizeCurrency(body.currency ?? body.moeda),
         observation: str(body.observation),
-        sheet_name: str(body.sheet),
+        sheet_name,
         sheet_row,
       },
       { onConflict: "sheet_name,sheet_row", ignoreDuplicates: true },
