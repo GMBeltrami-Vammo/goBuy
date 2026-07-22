@@ -69,12 +69,15 @@ export function ChargesDashboard({
   supabaseToken,
   centerIds,
   allCostCenters,
+  isRhViewer,
 }: {
   email: string;
   supabaseToken: string;
   centerIds: number[];
   /** All active cost centers — for proposing a target CC when reclassifying. */
   allCostCenters: Pick<CostCenter, "id" | "code" | "name" | "department">[];
+  /** The RH approver — gets the Slack toggle even though they head no CC. */
+  isRhViewer: boolean;
 }) {
   const [charges, setCharges] = useState<IncomingCharge[] | null>(null);
   const [centers, setCenters] = useState<CostCenter[]>([]);
@@ -105,6 +108,8 @@ export function ChargesDashboard({
   const [selectedMonth, setSelectedMonth] = useState(monthStart);
 
   const hasCenters = centerIds.length > 0;
+  // Heads and the RH approver may toggle their Slack notifications.
+  const canSlack = hasCenters || isRhViewer;
 
   const load = useCallback(async () => {
     const supabase = supabaseBrowser(supabaseToken);
@@ -411,7 +416,7 @@ export function ChargesDashboard({
 
   // Load this head's Slack preference (RLS lets them read their own row).
   useEffect(() => {
-    if (!hasCenters) return;
+    if (!canSlack) return;
     let cancelled = false;
     void (async () => {
       const { data } = await supabaseBrowser(supabaseToken)
@@ -426,7 +431,7 @@ export function ChargesDashboard({
     return () => {
       cancelled = true;
     };
-  }, [hasCenters, supabaseToken, email]);
+  }, [canSlack, supabaseToken, email]);
 
   const toggleSlack = async () => {
     if (slackBusy || slackOn === null) return;
@@ -455,7 +460,7 @@ export function ChargesDashboard({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {hasCenters && slackOn !== null && (
+          {canSlack && slackOn !== null && (
             <button
               onClick={() => void toggleSlack()}
               disabled={slackBusy}

@@ -574,6 +574,8 @@ export interface ChargeNotification {
   costCenterLabel: string | null; // "1001 — Marketing"
   dueDate: string | null; // yyyy-mm-dd (Vencimento)
   paymentDate: string | null; // yyyy-mm-dd (data de pagamento se aprovar agora)
+  /** Confidential RH charge — shown with a lock marker; DM'd only to the RH approver. */
+  confidential?: boolean;
   /** Rateio breakdown when the charge splits across cost centers. */
   rateio?: Array<{ code: string; label: string; pct: number; amount: number | null }>;
 }
@@ -604,6 +606,9 @@ export async function notifyChargeHead(
 
   const blocks: object[] = [
     { type: "header", text: { type: "plain_text", text: `Nova cobrança · ${req.displayId}`, emoji: true } },
+    ...(req.confidential
+      ? [{ type: "context", elements: [{ type: "mrkdwn", text: "🔒 *Confidencial · RH*" }] }]
+      : []),
     {
       type: "section",
       fields: [

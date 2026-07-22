@@ -3,6 +3,7 @@ import "server-only";
 import { brtHour, brtYmd } from "@/lib/format";
 import { paymentSchedule } from "@/lib/payment-schedule";
 import { parseRateio } from "@/lib/rateio";
+import { RH_VIEWER_EMAIL } from "@/lib/rh-viewer";
 import { type ChargeNotification, notifyChargeHead } from "@/lib/slack";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -44,11 +45,23 @@ function toNotification(c: ChargeRow, referenceIso: string): ChargeNotification 
     costCenterLabel: cc ? `${cc.code} — ${cc.name}` : null,
     dueDate: c.due_date,
     paymentDate: paymentSchedule(brtYmd(referenceIso), c.due_date).newPaymentDate,
+    confidential: c.sheet_name === "RH",
     rateio:
       segs.length > 1
         ? segs.map((s) => ({ code: s.code, label: s.label, pct: s.pct, amount: s.amount }))
         : undefined,
   };
+}
+
+/** Is the given email opted in to Slack notifications? */
+async function prefEnabled(email: string): Promise<boolean> {
+  const { data } = await supabaseAdmin()
+    .from("head_slack_prefs")
+    .select("head_email")
+    .eq("head_email", email)
+    .eq("notifications_enabled", true)
+    .maybeSingle();
+  return !!data;
 }
 
 /** Heads of a cost center who have Slack notifications enabled (opt-in). */
@@ -79,10 +92,12 @@ export async function notifyChargeIngested(chargeId: string): Promise<void> {
   if (!data) return;
   const charge = data as unknown as ChargeRow;
 
-  // Confidential RH charges must never notify CC heads (they can't see them).
-  if (charge.sheet_name === "RH") return;
-
-  const heads = await optedInHeads(charge.cost_center_id);
+  // RH is confidential: notify ONLY the RH approver (never the CC head). Everyone
+  // else: the opted-in heads of the charge's cost center.
+  const heads =
+    charge.sheet_name === "RH"
+      ? (await prefEnabled(RH_VIEWER_EMAIL)) ? [RH_VIEWER_EMAIL] : []
+      : await optedInHeads(charge.cost_center_id);
   if (heads.length === 0) return;
 
   const nowIso = new Date().toISOString();
@@ -151,20 +166,25 @@ export async function drainChargeNotificationQueue(): Promise<{ sent: number; sk
       const enabled = (pref as { notifications_enabled?: boolean } | null)?.notifications_enabled ?? false;
       const charge = chg as unknown as ChargeRow | null;
 
-      // Still-a-head re-check: a head removed from the CC between ingest and the
-      // 09:00 drain must NOT get the DM (RLS would deny them the charge in-app).
-      let stillHead = false;
+      // Re-check the recipient is still valid for this charge, so nobody gets a
+      // DM they can no longer see in-app. RH → must be the RH approver; else →
+      // must still be a head of the charge's CC.
+      let stillValid = false;
       if (charge) {
-        const { data: headRow } = await admin
-          .from("cost_center_heads")
-          .select("cost_center_id")
-          .eq("cost_center_id", charge.cost_center_id)
-          .eq("head_email", row.head_email)
-          .maybeSingle();
-        stillHead = !!headRow;
+        if (charge.sheet_name === "RH") {
+          stillValid = row.head_email === RH_VIEWER_EMAIL;
+        } else {
+          const { data: headRow } = await admin
+            .from("cost_center_heads")
+            .select("cost_center_id")
+            .eq("cost_center_id", charge.cost_center_id)
+            .eq("head_email", row.head_email)
+            .maybeSingle();
+          stillValid = !!headRow;
+        }
       }
 
-      if (!charge || !enabled || !stillHead || charge.status !== "pending") {
+      if (!charge || !enabled || !stillValid || charge.status !== "pending") {
         await admin.from("charge_notification_queue").update({ status: "skipped" }).eq("id", row.id);
         skipped++;
         continue;

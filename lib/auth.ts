@@ -1,6 +1,7 @@
 import { cache } from "react";
 
 import { auth } from "@/auth";
+import { RH_VIEWER_EMAIL } from "@/lib/rh-viewer";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { AppRole, SessionContext } from "@/lib/types";
 
@@ -15,10 +16,6 @@ const FULL_APP_ADMINS = (process.env.FULL_APP_ADMINS ?? "")
   .split(",")
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
-
-// The RH approver — sees ONLY confidential "RH" charges (across all CCs) and
-// decides them. Kept in sync with finance.is_rh_viewer() in the DB.
-const RH_VIEWER_EMAIL = "gabriela@vammo.com";
 
 /**
  * Resolves the signed-in user's capabilities (head centers + roles).

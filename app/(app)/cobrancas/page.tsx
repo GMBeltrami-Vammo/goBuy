@@ -26,6 +26,7 @@ export default async function CobrancasPage() {
       supabaseToken={ctx.supabaseToken}
       centerIds={ctx.headCenterIds}
       allCostCenters={allCostCenters ?? []}
+      isRhViewer={ctx.isRhViewer}
     />
   );
 }
