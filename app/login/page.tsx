@@ -1,4 +1,5 @@
 import { signIn } from "@/auth";
+import { GoBuyMascot, GoBuyWordmark } from "@/components/logo";
 
 const ERRORS: Record<string, string> = {
   OAuthSignin: "Não foi possível iniciar o login. Tente novamente.",
@@ -19,12 +20,13 @@ export default async function LoginPage({
   return (
     <main className="flex min-h-[calc(100vh-3px)] items-center justify-center px-5 sm:px-8">
       <div className="w-full max-w-sm">
-        <div className="reveal reveal-1 mb-10 text-center">
+        <div className="reveal reveal-1 mb-10 flex flex-col items-center text-center">
           <p className="v-tabular text-xs uppercase tracking-[0.35em] text-[var(--faint)]">
             Vammo · Financeiro
           </p>
-          <h1 className="mt-3 text-5xl font-bold tracking-tight">
-            go<span className="text-[var(--accent)]">Buy</span>
+          <GoBuyMascot size={104} className="mt-4" />
+          <h1 className="mt-2">
+            <GoBuyWordmark className="text-5xl" />
           </h1>
           <p className="mt-3 text-sm text-[var(--muted)]">
             Solicitações de compra, aprovações e pagamentos — em um só lugar.

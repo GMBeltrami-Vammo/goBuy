@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { signOut } from "@/auth";
 import { FxToggle } from "@/components/fx-toggle";
+import { Logo } from "@/components/logo";
 import { NavTabs } from "@/components/nav-tabs";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getSessionContext } from "@/lib/auth";
@@ -17,10 +18,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="mx-auto flex min-h-[calc(100vh-3px)] w-full max-w-[110rem] flex-col px-5 sm:px-8 lg:w-3/4">
       <header className="flex items-center justify-between gap-4 pb-2 pt-6">
-        <div className="flex items-baseline gap-3">
-          <span className="text-xl font-bold tracking-tight">
-            go<span className="text-[var(--accent)]">Buy</span>
-          </span>
+        <div className="flex items-center gap-3">
+          <Logo size="sm" />
           <span className="hidden v-tabular text-[10px] uppercase tracking-[0.3em] text-[var(--faint)] sm:block">
             Vammo · Compras
           </span>
