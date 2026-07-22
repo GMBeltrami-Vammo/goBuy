@@ -24,7 +24,7 @@ export default async function LoginPage({
           <p className="v-tabular text-xs uppercase tracking-[0.35em] text-[var(--faint)]">
             Vammo · Financeiro
           </p>
-          <GoBuyMascot size={104} className="mt-4" />
+          <GoBuyMascot size={208} className="mt-4" />
           <h1 className="mt-2">
             <GoBuyWordmark className="text-5xl" />
           </h1>

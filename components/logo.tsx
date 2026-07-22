@@ -14,7 +14,8 @@ export function GoBuyMascot({ size, className = "" }: { size: number; className?
       height={size}
       draggable={false}
       className={`shrink-0 select-none ${className}`}
-      style={{ width: size, height: size }}
+      // Mirrored so the rider runs toward the wordmark.
+      style={{ width: size, height: size, transform: "scaleX(-1)" }}
     />
   );
 }
@@ -35,7 +36,7 @@ export function GoBuyWordmark({ className = "" }: { className?: string }) {
 
 /** Horizontal lockup (mascot + wordmark) for the app header. */
 export function Logo({ size = "sm" }: { size?: "sm" | "lg" }) {
-  const px = size === "lg" ? 76 : 32;
+  const px = size === "lg" ? 152 : 64;
   const text = size === "lg" ? "text-5xl" : "text-xl";
   return (
     <span className="inline-flex items-center gap-2">
