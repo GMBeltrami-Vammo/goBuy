@@ -2,13 +2,16 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
 
 import { Pagination, usePagination } from "@/components/pagination";
 import { RequestDrawer } from "@/components/request-drawer";
 import { StatusBadge, TypeBadge } from "@/components/status-badge";
-import { brtYmd, formatBRL, formatDate } from "@/lib/format";
+import { FilterHeader, type FilterOption } from "@/components/table-filter";
+import { useSort } from "@/components/table-sort";
+import { brtYmd, formatBRL, formatDate, STATUS_LABEL, TYPE_LABEL } from "@/lib/format";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import type { CostCenter, CostCenterBudget, PurchaseRequest } from "@/lib/types";
+import type { CostCenter, CostCenterBudget, PurchaseRequest, RequestStatus, RequestType } from "@/lib/types";
 
 // recharts is heavy — load it only when this dashboard renders.
 const BudgetDonut = dynamic(
@@ -27,7 +30,111 @@ const HeadAggregateChart = dynamic(
 /** Statuses that consume budget: aprovada em diante (exceto recusada/cancelada). */
 const COMMITTED_STATUSES = new Set(["approved", "awaiting_finance", "awaiting_payment", "paid"]);
 
-type SortKey = "value" | "date" | "department";
+// ─── Sorting ──────────────────────────────────────────────────────────────────
+// Shared by both tables (pending queue + recent history), over PurchaseRequest.
+type SortField = "id" | "supplier" | "dept" | "type" | "amount" | "created" | "decided" | "status";
+
+// Status display + sort order (request lifecycle: actionable → settled).
+const STATUS_ORDER: RequestStatus[] = [
+  "pending",
+  "approved",
+  "awaiting_finance",
+  "awaiting_payment",
+  "paid",
+  "rejected",
+  "cancelled",
+];
+const STATUS_RANK = Object.fromEntries(STATUS_ORDER.map((s, i) => [s, i])) as Record<RequestStatus, number>;
+
+function requestSortKey(r: PurchaseRequest, field: SortField): string | number {
+  switch (field) {
+    case "id":
+      return r.display_id ?? "";
+    case "supplier":
+      return (r.supplier_name ?? "").toLowerCase();
+    case "dept":
+      return (r.cost_centers?.department ?? "").toLowerCase();
+    case "type":
+      return TYPE_LABEL[r.request_type] ?? r.request_type;
+    case "amount":
+      return Number(r.total_amount) || 0;
+    case "created":
+      return r.created_at ?? "";
+    case "decided":
+      return r.decided_at ?? r.cancelled_at ?? "";
+    case "status":
+      return STATUS_RANK[r.status];
+  }
+}
+
+function compareRequests(
+  a: PurchaseRequest,
+  b: PurchaseRequest,
+  field: SortField,
+  dir: "asc" | "desc",
+): number {
+  const ka = requestSortKey(a, field);
+  const kb = requestSortKey(b, field);
+  const aEmpty = ka === "";
+  const bEmpty = kb === "";
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+  const cmp =
+    typeof ka === "number" && typeof kb === "number" ? ka - kb : String(ka).localeCompare(String(kb));
+  return dir === "asc" ? cmp : -cmp;
+}
+
+// ─── Per-column value filters ──────────────────────────────────────────────────
+// `excluded` holds the UNCHECKED values per column (a row passes when its value is
+// not there). Built so the two tables can each own an independent filter state.
+const optionsByLabel = (m: Map<string, string>): FilterOption[] =>
+  [...m.entries()]
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => (a.value === "" ? 1 : b.value === "" ? -1 : a.label.localeCompare(b.label)));
+
+const supplierOptions = (rows: PurchaseRequest[]): FilterOption[] => {
+  const m = new Map<string, string>();
+  for (const r of rows) m.set(r.supplier_name ?? "", r.supplier_name ?? "");
+  return optionsByLabel(m);
+};
+const deptOptions = (rows: PurchaseRequest[]): FilterOption[] => {
+  const m = new Map<string, string>();
+  for (const r of rows) {
+    const d = r.cost_centers?.department ?? "";
+    m.set(d, d);
+  }
+  return optionsByLabel(m);
+};
+const typeOptions = (rows: PurchaseRequest[]): FilterOption[] =>
+  (Object.keys(TYPE_LABEL) as RequestType[])
+    .filter((t) => rows.some((r) => r.request_type === t))
+    .map((t) => ({ value: t, label: TYPE_LABEL[t] }));
+const statusOptions = (rows: PurchaseRequest[]): FilterOption[] =>
+  STATUS_ORDER.filter((s) => rows.some((r) => r.status === s)).map((s) => ({ value: s, label: STATUS_LABEL[s] }));
+
+// Stable pagination reset-key signature for a table's active value filters.
+const excludedSignature = (excluded: Record<string, Set<string>>) =>
+  Object.entries(excluded)
+    .map(([k, s]) => `${k}:${[...s].sort().join("|")}`)
+    .sort()
+    .join(";");
+
+// The three value-filter handlers, bound to a given table's excluded-state setter.
+function makeExcludedHandlers(setExcluded: Dispatch<SetStateAction<Record<string, Set<string>>>>) {
+  return {
+    toggleVal: (key: string, v: string) =>
+      setExcluded((prev) => {
+        const s = new Set(prev[key] ?? []);
+        if (s.has(v)) s.delete(v);
+        else s.add(v);
+        return { ...prev, [key]: s };
+      }),
+    selectAllVals: (key: string) => setExcluded((prev) => ({ ...prev, [key]: new Set<string>() })),
+    clearVals: (key: string, opts: FilterOption[]) =>
+      setExcluded((prev) => ({ ...prev, [key]: new Set(opts.map((o) => o.value)) })),
+  };
+}
 
 export function HeadDashboard({
   email,
@@ -45,10 +152,25 @@ export function HeadDashboard({
   const [requests, setRequests] = useState<PurchaseRequest[] | null>(null);
   const [openRequest, setOpenRequest] = useState<PurchaseRequest | null>(null);
   const [detailCenter, setDetailCenter] = useState<CostCenter | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>("date");
   const [toast, setToast] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"pizza" | "barra">("pizza");
   const autoOpened = useRef(false);
+
+  // Each table owns its own sort + per-column value filters.
+  const {
+    field: pendingSortField,
+    dir: pendingSortDir,
+    setSort: setPendingSort,
+  } = useSort<SortField>("created", "asc");
+  const [pendingExcluded, setPendingExcluded] = useState<Record<string, Set<string>>>({});
+  const {
+    field: recentSortField,
+    dir: recentSortDir,
+    setSort: setRecentSort,
+  } = useSort<SortField>("decided", "desc");
+  const [recentExcluded, setRecentExcluded] = useState<Record<string, Set<string>>>({});
+  const pendFilter = makeExcludedHandlers(setPendingExcluded);
+  const recFilter = makeExcludedHandlers(setRecentExcluded);
 
   const monthStart = useMemo(() => {
     const d = new Date();
@@ -139,30 +261,74 @@ export function HeadDashboard({
     return map;
   }, [requests, centerIds]);
 
-  const pending = useMemo(() => {
-    const list = (requests ?? []).filter((r) => {
-      if (r.status !== "pending") return false;
-      const allocs = r.request_allocations ?? [];
-      if (allocs.length === 0) return true;
-      return allocs.some((a) => centerIds.includes(a.cost_center_id) && !a.approved_at);
-    });
-    const sorted = [...list];
-    if (sortKey === "value") sorted.sort((a, b) => Number(b.total_amount) - Number(a.total_amount));
-    if (sortKey === "date") sorted.sort((a, b) => a.created_at.localeCompare(b.created_at));
-    if (sortKey === "department")
-      sorted.sort((a, b) =>
-        (a.cost_centers?.department ?? "").localeCompare(b.cost_centers?.department ?? ""),
-      );
-    return sorted;
-  }, [requests, sortKey, centerIds]);
-
-  const recent = useMemo(
-    () => (requests ?? []).filter((r) => r.status !== "pending"),
-    [requests],
+  // ─── Pending queue: base backlog (for count) → value filters → sort ───────────
+  const pendingBase = useMemo(
+    () =>
+      (requests ?? []).filter((r) => {
+        if (r.status !== "pending") return false;
+        const allocs = r.request_allocations ?? [];
+        if (allocs.length === 0) return true;
+        return allocs.some((a) => centerIds.includes(a.cost_center_id) && !a.approved_at);
+      }),
+    [requests, centerIds],
   );
 
-  const pendingPager = usePagination(pending, sortKey);
-  const recentPager = usePagination(recent, "recent");
+  const pendingOptions = useMemo(
+    () => ({
+      supplier: supplierOptions(pendingBase),
+      dept: deptOptions(pendingBase),
+      type: typeOptions(pendingBase),
+    }),
+    [pendingBase],
+  );
+
+  const pendingRows = useMemo(() => {
+    const list = pendingBase.filter((r) => {
+      if (pendingExcluded.supplier?.has(r.supplier_name ?? "")) return false;
+      if (pendingExcluded.dept?.has(r.cost_centers?.department ?? "")) return false;
+      if (pendingExcluded.type?.has(r.request_type)) return false;
+      return true;
+    });
+    return [...list].sort((a, b) => compareRequests(a, b, pendingSortField, pendingSortDir));
+  }, [pendingBase, pendingExcluded, pendingSortField, pendingSortDir]);
+
+  // ─── Recent decisions: everything not pending → value filters → sort ──────────
+  const recentBase = useMemo(() => (requests ?? []).filter((r) => r.status !== "pending"), [requests]);
+
+  const recentOptions = useMemo(
+    () => ({
+      supplier: supplierOptions(recentBase),
+      dept: deptOptions(recentBase),
+      type: typeOptions(recentBase),
+      status: statusOptions(recentBase),
+    }),
+    [recentBase],
+  );
+
+  const recentRows = useMemo(() => {
+    const list = recentBase.filter((r) => {
+      if (recentExcluded.supplier?.has(r.supplier_name ?? "")) return false;
+      if (recentExcluded.dept?.has(r.cost_centers?.department ?? "")) return false;
+      if (recentExcluded.type?.has(r.request_type)) return false;
+      if (recentExcluded.status?.has(r.status)) return false;
+      return true;
+    });
+    return [...list].sort((a, b) => compareRequests(a, b, recentSortField, recentSortDir));
+  }, [recentBase, recentExcluded, recentSortField, recentSortDir]);
+
+  const pendingPager = usePagination(
+    pendingRows,
+    `pending|${excludedSignature(pendingExcluded)}|${pendingSortField}|${pendingSortDir}`,
+  );
+  const recentPager = usePagination(
+    recentRows,
+    `recent|${excludedSignature(recentExcluded)}|${recentSortField}|${recentSortDir}`,
+  );
+
+  const anyPendingFilter = ["supplier", "dept", "type"].some((k) => (pendingExcluded[k]?.size ?? 0) > 0);
+  const anyRecentFilter = ["supplier", "dept", "type", "status"].some(
+    (k) => (recentExcluded[k]?.size ?? 0) > 0,
+  );
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -200,9 +366,9 @@ export function HeadDashboard({
             </p>
           )}
         </div>
-        {pending.length > 0 && (
+        {pendingBase.length > 0 && (
           <span className="rounded-full bg-[var(--pending-soft)] px-4 py-1.5 v-tabular text-sm font-bold text-[var(--pending)]">
-            {pending.length} pendente{pending.length === 1 ? "" : "s"}
+            {pendingBase.length} pendente{pendingBase.length === 1 ? "" : "s"}
           </span>
         )}
       </div>
@@ -335,34 +501,25 @@ export function HeadDashboard({
         )}
       </div>
 
-      {/* Pending queue */}
+      {/* Pending queue — per-column value filters + sort */}
       <div className="reveal reveal-4 mt-8 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-5 py-3.5">
-          <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
-            Aguardando sua aprovação
-          </h2>
-          <div className="flex items-center gap-1 text-xs">
-            <span className="mr-1 text-[var(--faint)]">Ordenar:</span>
-            {(
-              [
-                ["date", "Data"],
-                ["value", "Valor"],
-                ["department", "Departamento"],
-              ] as [SortKey, string][]
-            ).map(([k, label]) => (
-              <button
-                key={k}
-                onClick={() => setSortKey(k)}
-                className={`rounded-full px-3 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
-                  sortKey === k
-                    ? "bg-[var(--accent-soft)] font-semibold text-[var(--accent)]"
-                    : "text-[var(--muted)] hover:text-[var(--ink)]"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+          <div className="flex items-center gap-3">
+            <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
+              Aguardando sua aprovação
+            </h2>
+            <span className="hidden v-tabular text-[10px] text-[var(--faint)] sm:inline">
+              ordene/filtre clicando nos cabeçalhos
+            </span>
           </div>
+          {anyPendingFilter && (
+            <button
+              onClick={() => setPendingExcluded({})}
+              className="rounded text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
+              Limpar filtros
+            </button>
+          )}
         </div>
 
         {loading ? (
@@ -371,20 +528,37 @@ export function HeadDashboard({
             <SkeletonRow />
             <SkeletonRow />
           </div>
-        ) : pending.length === 0 ? (
+        ) : pendingBase.length === 0 ? (
           <p className="px-5 py-12 text-center text-sm text-[var(--faint)]">
             Nenhuma solicitação pendente por aqui.
+          </p>
+        ) : pendingRows.length === 0 ? (
+          <p className="px-5 py-12 text-center text-sm text-[var(--faint)]">
+            Nenhuma solicitação com os filtros atuais.
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full" aria-label="Solicitações aguardando aprovação">
               <thead className="hidden sm:table-header-group">
                 <tr className="border-b border-[var(--line)]">
-                  <th scope="col" className="w-[90px] px-5 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">ID</th>
-                  <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Solicitação</th>
-                  <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Tipo</th>
-                  <th scope="col" className="w-[110px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Valor</th>
-                  <th scope="col" className="w-[120px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Data</th>
+                  <FilterHeader label="ID" field="id" active={pendingSortField} dir={pendingSortDir} setSort={setPendingSort} width="90px" className="pl-5" />
+                  <FilterHeader
+                    label="Fornecedor" field="supplier" active={pendingSortField} dir={pendingSortDir} setSort={setPendingSort}
+                    options={pendingOptions.supplier} excluded={pendingExcluded.supplier}
+                    onToggle={(v) => pendFilter.toggleVal("supplier", v)} onSelectAll={() => pendFilter.selectAllVals("supplier")} onClearAll={() => pendFilter.clearVals("supplier", pendingOptions.supplier)}
+                  />
+                  <FilterHeader
+                    label="Departamento" field="dept" active={pendingSortField} dir={pendingSortDir} setSort={setPendingSort} width="180px"
+                    options={pendingOptions.dept} excluded={pendingExcluded.dept}
+                    onToggle={(v) => pendFilter.toggleVal("dept", v)} onSelectAll={() => pendFilter.selectAllVals("dept")} onClearAll={() => pendFilter.clearVals("dept", pendingOptions.dept)}
+                  />
+                  <FilterHeader
+                    label="Tipo" field="type" active={pendingSortField} dir={pendingSortDir} setSort={setPendingSort} width="120px"
+                    options={pendingOptions.type} excluded={pendingExcluded.type}
+                    onToggle={(v) => pendFilter.toggleVal("type", v)} onSelectAll={() => pendFilter.selectAllVals("type")} onClearAll={() => pendFilter.clearVals("type", pendingOptions.type)}
+                  />
+                  <FilterHeader label="Valor" field="amount" active={pendingSortField} dir={pendingSortDir} setSort={setPendingSort} align="right" width="110px" />
+                  <FilterHeader label="Data" field="created" active={pendingSortField} dir={pendingSortDir} setSort={setPendingSort} align="right" width="120px" />
                   <th scope="col" className="w-[90px] px-5 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Ação</th>
                 </tr>
               </thead>
@@ -408,8 +582,12 @@ export function HeadDashboard({
                     </td>
                     <td className="px-2 py-3.5">
                       <div className="text-sm font-medium">{r.supplier_name}</div>
-                      <div className="truncate text-xs text-[var(--muted)]">
-                        {r.requester_email} · {r.cost_centers?.department}
+                      <div className="truncate text-xs text-[var(--muted)]">{r.requester_email}</div>
+                    </td>
+                    <td className="hidden px-2 py-3.5 sm:table-cell">
+                      <div className="truncate text-xs font-medium">{r.cost_centers?.department ?? "—"}</div>
+                      <div className="truncate text-[11px] text-[var(--faint)]">
+                        {r.cost_centers ? `${r.cost_centers.code} — ${r.cost_centers.name}` : r.cost_center_id}
                       </div>
                     </td>
                     <td className="hidden px-2 py-3.5 sm:table-cell">
@@ -440,45 +618,110 @@ export function HeadDashboard({
         />
       </div>
 
-      {/* Recent decisions */}
-      {recent.length > 0 && (
+      {/* Recent decisions — per-column value filters + sort */}
+      {recentBase.length > 0 && (
         <div className="mt-6 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
-          <div className="border-b border-[var(--line)] px-5 py-3.5">
-            <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
-              Recentes
-            </h2>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-5 py-3.5">
+            <div className="flex items-center gap-3">
+              <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
+                Recentes
+              </h2>
+              <span className="hidden v-tabular text-[10px] text-[var(--faint)] sm:inline">
+                ordene/filtre clicando nos cabeçalhos
+              </span>
+            </div>
+            {anyRecentFilter && (
+              <button
+                onClick={() => setRecentExcluded({})}
+                className="rounded text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              >
+                Limpar filtros
+              </button>
+            )}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full" aria-label="Decisões recentes">
-              <tbody>
-                {recentPager.pageItems.map((r) => (
-                  <tr
-                    key={r.id}
-                    onClick={() => setOpenRequest(r)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setOpenRequest(r);
-                      }
-                    }}
-                    tabIndex={0}
-                    className="table-row-hover cursor-pointer border-b border-[var(--line)] last:border-b-0 focus-visible:outline-none focus-visible:bg-[var(--surface-2)]"
-                  >
-                    <td className="w-[90px] px-5 py-3 v-tabular text-xs font-semibold text-[var(--accent)]">
-                      {r.display_id}
-                    </td>
-                    <td className="px-2 py-3 text-sm">{r.supplier_name}</td>
-                    <td className="hidden px-2 py-3 text-right v-tabular text-xs text-[var(--muted)] sm:table-cell">
-                      {formatBRL(Number(r.total_amount))}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      <StatusBadge status={r.status} />
-                    </td>
+          {recentRows.length === 0 ? (
+            <p className="px-5 py-12 text-center text-sm text-[var(--faint)]">
+              Nenhuma decisão com os filtros atuais.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full" aria-label="Decisões recentes">
+                <thead className="hidden sm:table-header-group">
+                  <tr className="border-b border-[var(--line)]">
+                    <FilterHeader label="ID" field="id" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} width="90px" className="pl-5" />
+                    <FilterHeader
+                      label="Fornecedor" field="supplier" active={recentSortField} dir={recentSortDir} setSort={setRecentSort}
+                      options={recentOptions.supplier} excluded={recentExcluded.supplier}
+                      onToggle={(v) => recFilter.toggleVal("supplier", v)} onSelectAll={() => recFilter.selectAllVals("supplier")} onClearAll={() => recFilter.clearVals("supplier", recentOptions.supplier)}
+                    />
+                    <FilterHeader
+                      label="Departamento" field="dept" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} width="180px"
+                      options={recentOptions.dept} excluded={recentExcluded.dept}
+                      onToggle={(v) => recFilter.toggleVal("dept", v)} onSelectAll={() => recFilter.selectAllVals("dept")} onClearAll={() => recFilter.clearVals("dept", recentOptions.dept)}
+                    />
+                    <FilterHeader
+                      label="Tipo" field="type" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} width="120px"
+                      options={recentOptions.type} excluded={recentExcluded.type}
+                      onToggle={(v) => recFilter.toggleVal("type", v)} onSelectAll={() => recFilter.selectAllVals("type")} onClearAll={() => recFilter.clearVals("type", recentOptions.type)}
+                    />
+                    <FilterHeader label="Valor" field="amount" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} align="right" width="110px" />
+                    <FilterHeader label="Decidida em" field="decided" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} align="right" width="120px" />
+                    <FilterHeader
+                      label="Status" field="status" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} align="right" width="130px" className="pr-5"
+                      options={recentOptions.status} excluded={recentExcluded.status}
+                      onToggle={(v) => recFilter.toggleVal("status", v)} onSelectAll={() => recFilter.selectAllVals("status")} onClearAll={() => recFilter.clearVals("status", recentOptions.status)}
+                    />
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {recentPager.pageItems.map((r) => {
+                    const decidedOn = r.decided_at ?? r.cancelled_at;
+                    return (
+                      <tr
+                        key={r.id}
+                        onClick={() => setOpenRequest(r)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setOpenRequest(r);
+                          }
+                        }}
+                        tabIndex={0}
+                        className="table-row-hover cursor-pointer border-b border-[var(--line)] last:border-b-0 focus-visible:outline-none focus-visible:bg-[var(--surface-2)]"
+                        aria-label={`Abrir solicitação ${r.display_id} — ${r.supplier_name}`}
+                      >
+                        <td className="px-5 py-3 v-tabular text-xs font-semibold text-[var(--accent)]">
+                          {r.display_id}
+                        </td>
+                        <td className="px-2 py-3">
+                          <div className="text-sm font-medium">{r.supplier_name}</div>
+                          <div className="truncate text-xs text-[var(--muted)]">{r.requester_email}</div>
+                        </td>
+                        <td className="hidden px-2 py-3 sm:table-cell">
+                          <div className="truncate text-xs font-medium">{r.cost_centers?.department ?? "—"}</div>
+                          <div className="truncate text-[11px] text-[var(--faint)]">
+                            {r.cost_centers ? `${r.cost_centers.code} — ${r.cost_centers.name}` : r.cost_center_id}
+                          </div>
+                        </td>
+                        <td className="hidden px-2 py-3 sm:table-cell">
+                          <TypeBadge type={r.request_type} />
+                        </td>
+                        <td className="hidden px-2 py-3 text-right v-tabular text-sm font-semibold sm:table-cell">
+                          {formatBRL(Number(r.total_amount))}
+                        </td>
+                        <td className="hidden px-2 py-3 text-right v-tabular text-xs text-[var(--muted)] sm:table-cell">
+                          {decidedOn ? formatDate(decidedOn) : "—"}
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          <StatusBadge status={r.status} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
           <Pagination
             page={recentPager.page}
             pageCount={recentPager.pageCount}

@@ -6,6 +6,8 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Pagination, usePagination } from "@/components/pagination";
 import { RequestDrawer } from "@/components/request-drawer";
 import { StatusBadge, TypeBadge } from "@/components/status-badge";
+import { FilterHeader, type FilterOption } from "@/components/table-filter";
+import { useSort } from "@/components/table-sort";
 import {
   brtYmd,
   formatBRL,
@@ -18,7 +20,72 @@ import {
   TYPE_LABEL,
 } from "@/lib/format";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import type { PurchaseRequest } from "@/lib/types";
+import type { PurchaseRequest, RequestStatus } from "@/lib/types";
+
+// ─── Sorting ──────────────────────────────────────────────────────────────────
+type SortField =
+  | "id"
+  | "supplier"
+  | "dept"
+  | "type"
+  | "amount"
+  | "created"
+  | "payment"
+  | "status";
+
+// Status display + sort order (request lifecycle: actionable → settled).
+const STATUS_ORDER: RequestStatus[] = [
+  "pending",
+  "approved",
+  "awaiting_finance",
+  "awaiting_payment",
+  "paid",
+  "rejected",
+  "cancelled",
+];
+const STATUS_RANK = Object.fromEntries(STATUS_ORDER.map((s, i) => [s, i])) as Record<
+  RequestStatus,
+  number
+>;
+
+function requestSortKey(r: PurchaseRequest, field: SortField): string | number {
+  switch (field) {
+    case "id":
+      return r.display_id ?? "";
+    case "supplier":
+      return (r.supplier_name ?? "").toLowerCase();
+    case "dept":
+      return (r.cost_centers?.department ?? "").toLowerCase();
+    case "type":
+      return TYPE_LABEL[r.request_type] ?? r.request_type;
+    case "amount":
+      return Number(r.total_amount) || 0;
+    case "created":
+      return r.created_at ?? "";
+    case "payment":
+      return r.expected_payment_date ?? "";
+    case "status":
+      return STATUS_RANK[r.status];
+  }
+}
+
+function compareRequests(
+  a: PurchaseRequest,
+  b: PurchaseRequest,
+  field: SortField,
+  dir: "asc" | "desc",
+): number {
+  const ka = requestSortKey(a, field);
+  const kb = requestSortKey(b, field);
+  const aEmpty = ka === "";
+  const bEmpty = kb === "";
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+  const cmp =
+    typeof ka === "number" && typeof kb === "number" ? ka - kb : String(ka).localeCompare(String(kb));
+  return dir === "asc" ? cmp : -cmp;
+}
 
 export function FinanceDashboard({
   email,
@@ -33,9 +100,9 @@ export function FinanceDashboard({
 }) {
   const [requests, setRequests] = useState<PurchaseRequest[] | null>(null);
   const [openRequest, setOpenRequest] = useState<PurchaseRequest | null>(null);
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [deptFilter, setDeptFilter] = useState("all");
+  // Per-column value filters (excluded = the unchecked values) + column sort.
+  const [excluded, setExcluded] = useState<Record<string, Set<string>>>({});
+  const { field: sortField, dir: sortDir, setSort } = useSort<SortField>("created", "desc");
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -69,48 +136,87 @@ export function FinanceDashboard({
     void load();
   }, [load]);
 
-  const departments = useMemo(
-    () =>
-      [...new Set((requests ?? []).map((r) => r.cost_centers?.department).filter(Boolean))].sort() as string[],
-    [requests],
-  );
+  const searchQ = search.trim().toLowerCase();
+
+  // Distinct values present, for each value-filter column's dropdown.
+  const filterOptions = useMemo(() => {
+    const dept = new Map<string, string>();
+    for (const r of requests ?? []) {
+      const d = r.cost_centers?.department ?? "";
+      dept.set(d, d);
+    }
+    const deptOpts: FilterOption[] = [...dept.entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => (a.value === "" ? 1 : b.value === "" ? -1 : a.label.localeCompare(b.label)));
+    // Tipo + Status: fixed display order, keeping only values actually present.
+    const typeOpts: FilterOption[] = (Object.keys(TYPE_LABEL) as PurchaseRequest["request_type"][])
+      .filter((t) => (requests ?? []).some((r) => r.request_type === t))
+      .map((t) => ({ value: t, label: TYPE_LABEL[t] }));
+    const statusOpts: FilterOption[] = STATUS_ORDER.filter((s) =>
+      (requests ?? []).some((r) => r.status === s),
+    ).map((s) => ({ value: s, label: STATUS_LABEL[s] }));
+    return { dept: deptOpts, type: typeOpts, status: statusOpts };
+  }, [requests]);
 
   const filtered = useMemo(() => {
     const fromYMD = parseDMY(dateFrom);
     const toYMD = parseDMY(dateTo);
-    let list = requests ?? [];
-    if (statusFilter !== "all") list = list.filter((r) => r.status === statusFilter);
-    if (typeFilter !== "all") list = list.filter((r) => r.request_type === typeFilter);
-    if (deptFilter !== "all") list = list.filter((r) => r.cost_centers?.department === deptFilter);
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter(
-        (r) =>
-          r.supplier_name.toLowerCase().includes(q) ||
-          r.display_id.toLowerCase().includes(q) ||
-          r.requester_email.toLowerCase().includes(q),
-      );
-    }
-    if (fromYMD) {
-      list = list.filter((r) => {
+    const list = (requests ?? []).filter((r) => {
+      if (
+        searchQ &&
+        !(
+          r.supplier_name.toLowerCase().includes(searchQ) ||
+          r.display_id.toLowerCase().includes(searchQ) ||
+          r.requester_email.toLowerCase().includes(searchQ)
+        )
+      )
+        return false;
+      if (excluded.dept?.has(r.cost_centers?.department ?? "")) return false;
+      if (excluded.type?.has(r.request_type)) return false;
+      if (excluded.status?.has(r.status)) return false;
+      if (fromYMD || toYMD) {
         const d = dateField === "created" ? brtYmd(r.created_at) : r.expected_payment_date ?? "";
-        return !!d && d >= fromYMD;
-      });
-    }
-    if (toYMD) {
-      list = list.filter((r) => {
-        const d = dateField === "created" ? brtYmd(r.created_at) : r.expected_payment_date ?? "";
-        return !!d && d <= toYMD;
-      });
-    }
-    return list;
-  }, [requests, statusFilter, typeFilter, deptFilter, search, dateFrom, dateTo, dateField]);
+        if (fromYMD && !(d && d >= fromYMD)) return false;
+        if (toYMD && !(d && d <= toYMD)) return false;
+      }
+      return true;
+    });
+    return [...list].sort((a, b) => compareRequests(a, b, sortField, sortDir));
+  }, [requests, excluded, searchQ, dateFrom, dateTo, dateField, sortField, sortDir]);
 
+  const excludedKey = Object.entries(excluded)
+    .map(([k, s]) => `${k}:${[...s].sort().join("|")}`)
+    .sort()
+    .join(";");
   const { page, setPage, pageCount, pageItems, total, start, end } = usePagination(
     filtered,
-    `${statusFilter}|${typeFilter}|${deptFilter}|${search}|${dateFrom}|${dateTo}|${dateField}`,
+    `${excludedKey}|${searchQ}|${dateFrom}|${dateTo}|${dateField}|${sortField}|${sortDir}`,
   );
   const dateInvalid = isInvalidDMY(dateFrom) || isInvalidDMY(dateTo);
+
+  // Per-column value-filter handlers (excluded = the unchecked values).
+  const toggleVal = (key: string, v: string) =>
+    setExcluded((prev) => {
+      const s = new Set(prev[key] ?? []);
+      if (s.has(v)) s.delete(v);
+      else s.add(v);
+      return { ...prev, [key]: s };
+    });
+  const selectAllVals = (key: string) => setExcluded((prev) => ({ ...prev, [key]: new Set() }));
+  const clearVals = (key: string, opts: FilterOption[]) =>
+    setExcluded((prev) => ({ ...prev, [key]: new Set(opts.map((o) => o.value)) }));
+
+  const anyFilter =
+    !!searchQ ||
+    !!dateFrom ||
+    !!dateTo ||
+    ["dept", "type", "status"].some((k) => (excluded[k]?.size ?? 0) > 0);
+  const clearFilters = () => {
+    setSearch("");
+    setExcluded({});
+    setDateFrom("");
+    setDateTo("");
+  };
 
   const toValidate = useMemo(
     () => (requests ?? []).filter((r) => r.status === "awaiting_finance"),
@@ -339,42 +445,22 @@ export function FinanceDashboard({
               aria-label="Buscar por ID, fornecedor ou solicitante"
               className="max-w-72 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              aria-label="Filtrar por status"
-              className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-            >
-              <option value="all">Todos os status</option>
-              {Object.entries(STATUS_LABEL).map(([v, l]) => (
-                <option key={v} value={v}>{l}</option>
-              ))}
-            </select>
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              aria-label="Filtrar por tipo"
-              className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-            >
-              <option value="all">Todos os tipos</option>
-              {Object.entries(TYPE_LABEL).map(([v, l]) => (
-                <option key={v} value={v}>{l}</option>
-              ))}
-            </select>
-            <select
-              value={deptFilter}
-              onChange={(e) => setDeptFilter(e.target.value)}
-              aria-label="Filtrar por departamento"
-              className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-            >
-              <option value="all">Todos os departamentos</option>
-              {departments.map((d) => (
-                <option key={d}>{d}</option>
-              ))}
-            </select>
-            <span className="ml-auto v-tabular text-[11px] text-[var(--faint)]">
-              {filtered.length} de {requests?.length ?? 0}
+            <span className="hidden v-tabular text-[10px] text-[var(--faint)] sm:inline">
+              ordene/filtre clicando nos cabeçalhos
             </span>
+            <div className="ml-auto flex items-center gap-2">
+              {anyFilter && (
+                <button
+                  onClick={clearFilters}
+                  className="rounded text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                >
+                  Limpar filtros
+                </button>
+              )}
+              <span className="v-tabular text-[11px] text-[var(--faint)]">
+                {filtered.length} de {requests?.length ?? 0}
+              </span>
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="v-tabular text-[10px] uppercase tracking-[0.15em] text-[var(--faint)]">Por</span>
@@ -451,21 +537,33 @@ export function FinanceDashboard({
           </div>
         ) : filtered.length === 0 ? (
           <p className="px-5 py-12 text-center text-sm text-[var(--faint)]">
-            Nenhuma solicitação encontrada.
+            Nenhuma solicitação {anyFilter ? "com os filtros atuais" : "encontrada"}.
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full" aria-label="Todas as solicitações">
               <thead className="hidden sm:table-header-group">
                 <tr className="border-b border-[var(--line)] bg-[var(--surface-2)]">
-                  <th scope="col" className="w-[90px] px-5 py-2 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Solicitação</th>
-                  <th scope="col" className="px-2 py-2 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Solicitante</th>
-                  <th scope="col" className="w-[170px] px-2 py-2 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Departamento</th>
-                  <th scope="col" className="px-2 py-2 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Tipo</th>
-                  <th scope="col" className="w-[100px] px-2 py-2 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Valor</th>
-                  <th scope="col" className="w-[90px] px-2 py-2 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Dt. solicitação</th>
-                  <th scope="col" className="w-[90px] px-2 py-2 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Pag. previsto</th>
-                  <th scope="col" className="w-[120px] px-5 py-2 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Status</th>
+                  <FilterHeader label="Solicitação" field="id" active={sortField} dir={sortDir} setSort={setSort} width="90px" className="pl-5" />
+                  <FilterHeader label="Solicitante" field="supplier" active={sortField} dir={sortDir} setSort={setSort} />
+                  <FilterHeader
+                    label="Departamento" field="dept" active={sortField} dir={sortDir} setSort={setSort} width="170px"
+                    options={filterOptions.dept} excluded={excluded.dept}
+                    onToggle={(v) => toggleVal("dept", v)} onSelectAll={() => selectAllVals("dept")} onClearAll={() => clearVals("dept", filterOptions.dept)}
+                  />
+                  <FilterHeader
+                    label="Tipo" field="type" active={sortField} dir={sortDir} setSort={setSort}
+                    options={filterOptions.type} excluded={excluded.type}
+                    onToggle={(v) => toggleVal("type", v)} onSelectAll={() => selectAllVals("type")} onClearAll={() => clearVals("type", filterOptions.type)}
+                  />
+                  <FilterHeader label="Valor" field="amount" active={sortField} dir={sortDir} setSort={setSort} align="right" width="100px" />
+                  <FilterHeader label="Dt. solicitação" field="created" active={sortField} dir={sortDir} setSort={setSort} align="right" width="90px" />
+                  <FilterHeader label="Pag. previsto" field="payment" active={sortField} dir={sortDir} setSort={setSort} align="right" width="90px" />
+                  <FilterHeader
+                    label="Status" field="status" active={sortField} dir={sortDir} setSort={setSort} align="right" width="120px" className="pr-5"
+                    options={filterOptions.status} excluded={excluded.status}
+                    onToggle={(v) => toggleVal("status", v)} onSelectAll={() => selectAllVals("status")} onClearAll={() => clearVals("status", filterOptions.status)}
+                  />
                 </tr>
               </thead>
               <tbody>

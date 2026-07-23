@@ -7,20 +7,84 @@ import { NewRequestModal } from "@/components/new-request-modal";
 import { Pagination, usePagination } from "@/components/pagination";
 import { RequestDrawer } from "@/components/request-drawer";
 import { StatusBadge, TypeBadge } from "@/components/status-badge";
+import { FilterHeader, type FilterOption } from "@/components/table-filter";
+import { useSort } from "@/components/table-sort";
 import {
-  brtYmd,
   formatBRL,
   formatDate,
   formatDateOnlyBR,
-  isInvalidDMY,
-  maskDMY,
-  parseDMY,
   STATUS_LABEL,
+  TYPE_LABEL,
 } from "@/lib/format";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import type { CostCenter, Fornecedor, PurchaseRequest } from "@/lib/types";
+import type { CostCenter, Fornecedor, PurchaseRequest, RequestStatus, RequestType } from "@/lib/types";
 
-const IN_PROGRESS = ["approved", "awaiting_finance", "awaiting_payment"];
+// "Em andamento" groups the three between-approval-and-payment statuses.
+const IN_PROGRESS: RequestStatus[] = ["approved", "awaiting_finance", "awaiting_payment"];
+
+// ─── Sorting & search ─────────────────────────────────────────────────────────
+type SortField = "id" | "supplier" | "type" | "amount" | "created" | "payment" | "status";
+
+// Status values in workflow order (drives the Status column's value filter).
+const STATUS_ORDER: RequestStatus[] = [
+  "pending",
+  "approved",
+  "awaiting_finance",
+  "awaiting_payment",
+  "paid",
+  "rejected",
+  "cancelled",
+];
+// Sort rank so the Status column orders sensibly (workflow order, actionable first).
+const STATUS_RANK: Record<RequestStatus, number> = {
+  pending: 0,
+  approved: 1,
+  awaiting_finance: 2,
+  awaiting_payment: 3,
+  paid: 4,
+  rejected: 5,
+  cancelled: 6,
+};
+const TYPE_ORDER: RequestType[] = ["products", "service", "advance"];
+
+function requestSortKey(r: PurchaseRequest, field: SortField): string | number {
+  switch (field) {
+    case "id":
+      return r.display_id ?? "";
+    case "supplier":
+      return (r.supplier_name ?? "").toLowerCase();
+    case "type":
+      return TYPE_LABEL[r.request_type] ?? "";
+    case "amount":
+      return Number(r.total_amount) || 0;
+    case "created":
+      return r.created_at ?? "";
+    case "payment":
+      return r.expected_payment_date ?? "";
+    case "status":
+      return STATUS_RANK[r.status];
+  }
+}
+
+function compareRequests(a: PurchaseRequest, b: PurchaseRequest, field: SortField, dir: "asc" | "desc"): number {
+  const ka = requestSortKey(a, field);
+  const kb = requestSortKey(b, field);
+  const aEmpty = ka === "";
+  const bEmpty = kb === "";
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+  const cmp =
+    typeof ka === "number" && typeof kb === "number" ? ka - kb : String(ka).localeCompare(String(kb));
+  return dir === "asc" ? cmp : -cmp;
+}
+
+// Free-text match across the fields shown in the row (incl. cost-center text, so
+// CC stays discoverable via search).
+function matchesRequestSearch(r: PurchaseRequest, q: string): boolean {
+  return [r.display_id, r.supplier_name, r.cost_centers?.code, r.cost_centers?.name, r.cost_centers?.department]
+    .some((v) => (v ?? "").toString().toLowerCase().includes(q));
+}
 
 export function RequestsDashboard({
   email,
@@ -44,11 +108,11 @@ export function RequestsDashboard({
   const [showNew, setShowNew] = useState(false);
   const [showNewForn, setShowNewForn] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [ccFilter, setCcFilter] = useState("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [dateField, setDateField] = useState<"created" | "payment">("created");
+  // Table controls: global search + per-column value filters (excluded = the
+  // unchecked values) + column sort.
+  const [search, setSearch] = useState("");
+  const [excluded, setExcluded] = useState<Record<string, Set<string>>>({});
+  const { field: sortField, dir: sortDir, setSort } = useSort<SortField>("created", "desc");
   const autoOpened = useRef(false);
 
   const load = useCallback(async () => {
@@ -91,40 +155,46 @@ export function RequestsDashboard({
     };
   }, [requests]);
 
-  // Cost centers present in the user's own requests, for the CC filter.
-  const ccOptions = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const r of requests ?? []) {
-      if (r.cost_centers) map.set(r.cost_center_id, `${r.cost_centers.code} — ${r.cost_centers.name}`);
-    }
-    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const searchQ = search.trim().toLowerCase();
+
+  // Distinct values present, for each filterable column's dropdown.
+  const filterOptions = useMemo(() => {
+    const supplier = new Map<string, string>();
+    for (const r of requests ?? []) supplier.set(r.supplier_name ?? "", r.supplier_name ?? "");
+    const supplierOpts: FilterOption[] = [...supplier.entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => (a.value === "" ? 1 : b.value === "" ? -1 : a.label.localeCompare(b.label)));
+    const presentTypes = new Set((requests ?? []).map((r) => r.request_type));
+    const type: FilterOption[] = TYPE_ORDER.filter((t) => presentTypes.has(t)).map((t) => ({
+      value: t,
+      label: TYPE_LABEL[t],
+    }));
+    const presentStatus = new Set((requests ?? []).map((r) => r.status));
+    const status: FilterOption[] = STATUS_ORDER.filter((s) => presentStatus.has(s)).map((s) => ({
+      value: s,
+      label: STATUS_LABEL[s],
+    }));
+    return { supplier: supplierOpts, type, status };
   }, [requests]);
 
-  const filtered = useMemo(() => {
-    const fromYMD = parseDMY(dateFrom);
-    const toYMD = parseDMY(dateTo);
-    let list = requests ?? [];
-    if (statusFilter === "in_progress") list = list.filter((r) => IN_PROGRESS.includes(r.status));
-    else if (statusFilter !== "all") list = list.filter((r) => r.status === statusFilter);
-    if (ccFilter !== "all") list = list.filter((r) => String(r.cost_center_id) === ccFilter);
-    if (fromYMD) {
-      list = list.filter((r) => {
-        const d = dateField === "created" ? brtYmd(r.created_at) : r.expected_payment_date ?? "";
-        return !!d && d >= fromYMD;
-      });
-    }
-    if (toYMD) {
-      list = list.filter((r) => {
-        const d = dateField === "created" ? brtYmd(r.created_at) : r.expected_payment_date ?? "";
-        return !!d && d <= toYMD;
-      });
-    }
-    return list;
-  }, [requests, statusFilter, ccFilter, dateFrom, dateTo, dateField]);
+  const rows = useMemo(() => {
+    const list = (requests ?? []).filter((r) => {
+      if (searchQ && !matchesRequestSearch(r, searchQ)) return false;
+      if (excluded.supplier?.has(r.supplier_name ?? "")) return false;
+      if (excluded.type?.has(r.request_type)) return false;
+      if (excluded.status?.has(r.status)) return false;
+      return true;
+    });
+    return [...list].sort((a, b) => compareRequests(a, b, sortField, sortDir));
+  }, [requests, excluded, searchQ, sortField, sortDir]);
 
+  const excludedKey = Object.entries(excluded)
+    .map(([k, s]) => `${k}:${[...s].sort().join("|")}`)
+    .sort()
+    .join(";");
   const { page, setPage, pageCount, pageItems, total, start, end } = usePagination(
-    filtered,
-    `${statusFilter}|${ccFilter}|${dateFrom}|${dateTo}|${dateField}`,
+    rows,
+    `${excludedKey}|${searchQ}|${sortField}|${sortDir}`,
   );
 
   const flash = (msg: string) => {
@@ -132,14 +202,36 @@ export function RequestsDashboard({
     window.setTimeout(() => setToast(null), 5500);
   };
 
-  const dateInvalid = isInvalidDMY(dateFrom) || isInvalidDMY(dateTo);
-  const hasFilters = statusFilter !== "all" || ccFilter !== "all" || !!dateFrom || !!dateTo;
+  // Per-column value-filter handlers (excluded = the unchecked values).
+  const toggleVal = (key: string, v: string) =>
+    setExcluded((prev) => {
+      const s = new Set(prev[key] ?? []);
+      if (s.has(v)) s.delete(v);
+      else s.add(v);
+      return { ...prev, [key]: s };
+    });
+  const selectAllVals = (key: string) => setExcluded((prev) => ({ ...prev, [key]: new Set() }));
+  const clearVals = (key: string, opts: FilterOption[]) =>
+    setExcluded((prev) => ({ ...prev, [key]: new Set(opts.map((o) => o.value)) }));
+
+  const anyFilter = !!searchQ || Object.values(excluded).some((s) => s.size > 0);
   const clearFilters = () => {
-    setStatusFilter("all");
-    setCcFilter("all");
-    setDateFrom("");
-    setDateTo("");
+    setSearch("");
+    setExcluded({});
   };
+
+  // The summary cards act as quick presets over the Status column's value
+  // filter: "show only these statuses" = exclude every other status.
+  const statusFilterIs = (show: RequestStatus[]) => {
+    const ex = excluded.status;
+    if (!ex || ex.size === 0) return false;
+    const target = STATUS_ORDER.filter((s) => !show.includes(s));
+    return ex.size === target.length && target.every((s) => ex.has(s));
+  };
+  const toggleStatusOnly = (show: RequestStatus[]) =>
+    statusFilterIs(show)
+      ? selectAllVals("status")
+      : setExcluded((prev) => ({ ...prev, status: new Set(STATUS_ORDER.filter((s) => !show.includes(s))) }));
 
   return (
     <div>
@@ -180,133 +272,65 @@ export function RequestsDashboard({
           label="Aguardando"
           value={summary ? String(summary.pending) : null}
           tone="pending"
-          active={statusFilter === "pending"}
-          onClick={() => setStatusFilter((s) => (s === "pending" ? "all" : "pending"))}
+          active={statusFilterIs(["pending"])}
+          onClick={() => toggleStatusOnly(["pending"])}
         />
         <SummaryCard
           label="Em andamento"
           value={summary ? String(summary.inProgress) : null}
           sub={summary ? formatBRL(summary.inProgressValue) : undefined}
           tone="accent"
-          active={statusFilter === "in_progress"}
-          onClick={() => setStatusFilter((s) => (s === "in_progress" ? "all" : "in_progress"))}
+          active={statusFilterIs(IN_PROGRESS)}
+          onClick={() => toggleStatusOnly(IN_PROGRESS)}
         />
         <SummaryCard
           label="Pagas"
           value={summary ? String(summary.paid) : null}
           sub={summary ? formatBRL(summary.paidValue) : undefined}
           tone="paid"
-          active={statusFilter === "paid"}
-          onClick={() => setStatusFilter((s) => (s === "paid" ? "all" : "paid"))}
+          active={statusFilterIs(["paid"])}
+          onClick={() => toggleStatusOnly(["paid"])}
         />
         <SummaryCard
           label="Total solicitado"
           value={summary ? formatBRL(summary.totalValue) : null}
           small
-          active={statusFilter === "all" && !hasFilters}
+          active={!anyFilter}
           onClick={clearFilters}
         />
       </div>
 
       <div className="reveal reveal-3 mt-8 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
-        <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-3.5">
-          <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
-            Minhas solicitações
-          </h2>
-          <span className="v-tabular text-[11px] text-[var(--faint)]">
-            {requests === null ? "—" : `${filtered.length} de ${requests.length}`}
-          </span>
-        </div>
-
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--line)] px-5 py-2.5">
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            aria-label="Filtrar por status"
-            className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
-          >
-            <option value="all">Todos os status</option>
-            <option value="pending">Aguardando</option>
-            <option value="in_progress">Em andamento</option>
-            <option value="approved">{STATUS_LABEL.approved}</option>
-            <option value="awaiting_finance">{STATUS_LABEL.awaiting_finance}</option>
-            <option value="awaiting_payment">{STATUS_LABEL.awaiting_payment}</option>
-            <option value="paid">{STATUS_LABEL.paid}</option>
-            <option value="rejected">{STATUS_LABEL.rejected}</option>
-            <option value="cancelled">{STATUS_LABEL.cancelled}</option>
-          </select>
-          <select
-            value={ccFilter}
-            onChange={(e) => setCcFilter(e.target.value)}
-            aria-label="Filtrar por centro de custo"
-            className="max-w-48 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)]"
-          >
-            <option value="all">Todos os centros de custo</option>
-            {ccOptions.map(([id, label]) => (
-              <option key={id} value={String(id)}>{label}</option>
-            ))}
-          </select>
-          <div
-            role="group"
-            aria-label="Filtrar por data de solicitação ou pagamento"
-            className="flex items-center gap-0.5 rounded-md border border-[var(--line)] p-0.5"
-          >
-            {(["created", "payment"] as const).map((f) => (
-              <button
-                key={f}
-                onClick={() => setDateField(f)}
-                aria-pressed={dateField === f}
-                className={`rounded px-2 py-0.5 text-[11px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
-                  dateField === f
-                    ? "bg-[var(--accent-soft)] text-[var(--accent)]"
-                    : "text-[var(--muted)] hover:text-[var(--ink)]"
-                }`}
-              >
-                {f === "created" ? "Solicitação" : "Pagamento"}
-              </button>
-            ))}
-          </div>
-          <input
-            type="text"
-            inputMode="numeric"
-            maxLength={10}
-            placeholder="dd/mm/yyyy"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(maskDMY(e.target.value))}
-            aria-invalid={isInvalidDMY(dateFrom)}
-            className={`w-24 rounded-md border bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] ${
-              isInvalidDMY(dateFrom) ? "border-[var(--rejected)]" : "border-[var(--line-strong)]"
-            }`}
-            aria-label="De (dd/mm/yyyy)"
-          />
-          <span className="text-[11px] text-[var(--faint)]">—</span>
-          <input
-            type="text"
-            inputMode="numeric"
-            maxLength={10}
-            placeholder="dd/mm/yyyy"
-            value={dateTo}
-            onChange={(e) => setDateTo(maskDMY(e.target.value))}
-            aria-invalid={isInvalidDMY(dateTo)}
-            className={`w-24 rounded-md border bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] ${
-              isInvalidDMY(dateTo) ? "border-[var(--rejected)]" : "border-[var(--line-strong)]"
-            }`}
-            aria-label="Até (dd/mm/yyyy)"
-          />
-          {dateInvalid && (
-            <span role="alert" className="text-[11px] text-[var(--rejected)]">
-              Data inválida
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-5 py-3.5">
+          <div className="flex items-center gap-3">
+            <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
+              Minhas solicitações
+            </h2>
+            <span className="hidden v-tabular text-[10px] text-[var(--faint)] sm:inline">
+              ordene/filtre clicando nos cabeçalhos
             </span>
-          )}
-          {hasFilters && (
-            <button
-              onClick={clearFilters}
-              className="text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-            >
-              Limpar filtros
-            </button>
-          )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="v-tabular text-[11px] text-[var(--faint)]">
+              {requests === null ? "—" : `${rows.length} de ${requests.length}`}
+            </span>
+            {anyFilter && (
+              <button
+                onClick={clearFilters}
+                className="rounded text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              >
+                Limpar filtros
+              </button>
+            )}
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar fornecedor, CC, ID…"
+              aria-label="Buscar nas solicitações"
+              className="w-48 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2.5 py-1 text-[11px] text-[var(--ink)] outline-none transition placeholder:text-[var(--faint)] focus:border-[var(--accent)] sm:w-56"
+            />
+          </div>
         </div>
 
         {requests === null ? (
@@ -325,22 +349,34 @@ export function RequestsDashboard({
               Criar a primeira →
             </button>
           </div>
-        ) : filtered.length === 0 ? (
+        ) : rows.length === 0 ? (
           <p className="px-5 py-14 text-center text-sm text-[var(--faint)]">
             Nenhuma solicitação corresponde aos filtros.
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full" aria-label="Minhas solicitações de compra">
-              <thead className="hidden sm:table-header-group">
+              <thead>
                 <tr className="border-b border-[var(--line)]">
-                  <th scope="col" className="w-[90px] px-5 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">ID</th>
-                  <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Fornecedor</th>
-                  <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Tipo</th>
-                  <th scope="col" className="w-[110px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Valor</th>
-                  <th scope="col" className="w-[90px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Dt. solicitação</th>
-                  <th scope="col" className="w-[90px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Pag. previsto</th>
-                  <th scope="col" className="w-[132px] px-5 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Status</th>
+                  <FilterHeader label="ID" field="id" active={sortField} dir={sortDir} setSort={setSort} width="90px" className="pl-5" />
+                  <FilterHeader
+                    label="Fornecedor" field="supplier" active={sortField} dir={sortDir} setSort={setSort}
+                    options={filterOptions.supplier} excluded={excluded.supplier}
+                    onToggle={(v) => toggleVal("supplier", v)} onSelectAll={() => selectAllVals("supplier")} onClearAll={() => clearVals("supplier", filterOptions.supplier)}
+                  />
+                  <FilterHeader
+                    label="Tipo" field="type" active={sortField} dir={sortDir} setSort={setSort} className="hidden sm:table-cell"
+                    options={filterOptions.type} excluded={excluded.type}
+                    onToggle={(v) => toggleVal("type", v)} onSelectAll={() => selectAllVals("type")} onClearAll={() => clearVals("type", filterOptions.type)}
+                  />
+                  <FilterHeader label="Valor" field="amount" active={sortField} dir={sortDir} setSort={setSort} align="right" width="110px" className="hidden sm:table-cell" />
+                  <FilterHeader label="Dt. solicitação" field="created" active={sortField} dir={sortDir} setSort={setSort} align="right" width="90px" className="hidden sm:table-cell" />
+                  <FilterHeader label="Pag. previsto" field="payment" active={sortField} dir={sortDir} setSort={setSort} align="right" width="90px" className="hidden sm:table-cell" />
+                  <FilterHeader
+                    label="Status" field="status" active={sortField} dir={sortDir} setSort={setSort} align="right" width="132px" className="pr-5"
+                    options={filterOptions.status} excluded={excluded.status}
+                    onToggle={(v) => toggleVal("status", v)} onSelectAll={() => selectAllVals("status")} onClearAll={() => clearVals("status", filterOptions.status)}
+                  />
                 </tr>
               </thead>
               <tbody>

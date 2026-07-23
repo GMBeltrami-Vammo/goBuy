@@ -1,9 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { StatusBadge } from "@/components/status-badge";
+import { FilterHeader, type FilterOption } from "@/components/table-filter";
+import { useSort, type SortDir } from "@/components/table-sort";
+import { STATUS_LABEL } from "@/lib/format";
 import type { RequestStatus } from "@/lib/types";
 
 type AppRole = "finance" | "fiscal" | "admin" | "reclassifier";
@@ -67,6 +70,63 @@ const ROLE_CHIP: Record<AppRole, string> = {
   admin: "bg-[var(--role-admin-soft)] text-[var(--role-admin)]",
   reclassifier: "bg-[var(--pending-soft)] text-[var(--pending-text-strong)]",
 };
+// Roles in display order — drives the Roles column value filter.
+const ROLE_ORDER: AppRole[] = ["finance", "fiscal", "admin", "reclassifier"];
+
+// Request statuses in display order + a rank so the Status column sorts sensibly.
+const REQUEST_STATUS_ORDER: RequestStatus[] = [
+  "pending",
+  "approved",
+  "awaiting_finance",
+  "awaiting_payment",
+  "paid",
+  "rejected",
+  "cancelled",
+];
+const REQUEST_STATUS_RANK = Object.fromEntries(
+  REQUEST_STATUS_ORDER.map((s, i) => [s, i]),
+) as Record<RequestStatus, number>;
+
+// ─── Per-column value filter (shared with charges-dashboard's pattern) ──────────
+// `excluded[key]` holds the UNCHECKED values; a row passes a column when its
+// value is NOT in that set (empty set = everything shown). "" is the blank
+// sentinel (FilterHeader renders it as "(Vazias)").
+type ExcludedState = Record<string, Set<string>>;
+type SetExcluded = React.Dispatch<React.SetStateAction<ExcludedState>>;
+
+const toggleValIn = (set: SetExcluded, key: string, v: string) =>
+  set((prev) => {
+    const s = new Set(prev[key] ?? []);
+    if (s.has(v)) s.delete(v);
+    else s.add(v);
+    return { ...prev, [key]: s };
+  });
+const selectAllIn = (set: SetExcluded, key: string) =>
+  set((prev) => ({ ...prev, [key]: new Set<string>() }));
+const clearValsIn = (set: SetExcluded, key: string, opts: FilterOption[]) =>
+  set((prev) => ({ ...prev, [key]: new Set(opts.map((o) => o.value)) }));
+
+// Compare two sort keys: blanks ("") sort last; numbers numeric, else localeCompare.
+function cmpKeys(ka: string | number, kb: string | number, dir: SortDir): number {
+  const aEmpty = ka === "";
+  const bEmpty = kb === "";
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return 1;
+  if (bEmpty) return -1;
+  const cmp =
+    typeof ka === "number" && typeof kb === "number" ? ka - kb : String(ka).localeCompare(String(kb));
+  return dir === "asc" ? cmp : -cmp;
+}
+
+// Distinct text values → FilterOption[], blanks last, otherwise by label.
+const optionsByLabel = (m: Map<string, string>): FilterOption[] =>
+  [...m.entries()]
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => (a.value === "" ? 1 : b.value === "" ? -1 : a.label.localeCompare(b.label)));
+
+type UsersSortField = "email" | "roles" | "centers";
+type HeadsSortField = "cc" | "email" | "name";
+type ReqSortField = "id" | "requester" | "supplier" | "cc" | "status" | "amount" | "date";
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
@@ -238,6 +298,14 @@ export function AdminDashboard() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<RequestRow | null>(null);
 
+  // Per-column value filters + sort for each table (spreadsheet-style headers).
+  const [excludedUsers, setExcludedUsers] = useState<ExcludedState>({});
+  const [excludedHeads, setExcludedHeads] = useState<ExcludedState>({});
+  const [excludedReq, setExcludedReq] = useState<ExcludedState>({});
+  const { field: uField, dir: uDir, setSort: uSetSort } = useSort<UsersSortField>("email", "asc");
+  const { field: hField, dir: hDir, setSort: hSetSort } = useSort<HeadsSortField>("cc", "asc");
+  const { field: rField, dir: rDir, setSort: rSetSort } = useSort<ReqSortField>("date", "desc");
+
   const flash = (msg: string, ok = true) => {
     setToast({ msg, ok });
     setTimeout(() => setToast(null), 4000);
@@ -261,41 +329,176 @@ export function AdminDashboard() {
     void reload();
   }, [reload]);
 
+  const ccById = useMemo(
+    () => new Map((data?.costCenters ?? []).map((c) => [c.id, c])),
+    [data],
+  );
+
   // Derive per-user summary (roles + head center list)
-  const allUsers: UserSummary[] = (() => {
+  const allUsers: UserSummary[] = useMemo(() => {
     if (!data) return [];
     const map = new Map<string, UserSummary>();
     const get = (email: string) => {
-      if (!map.has(email))
-        map.set(email, { email, roles: [], headCenters: [] });
+      if (!map.has(email)) map.set(email, { email, roles: [], headCenters: [] });
       return map.get(email)!;
     };
     for (const r of data.roles) get(r.user_email).roles.push(r.role);
     for (const h of data.heads) {
-      const cc = data.costCenters.find((c) => c.id === h.cost_center_id);
+      const cc = ccById.get(h.cost_center_id);
       if (cc) get(h.head_email).headCenters.push({ id: cc.id, code: cc.code, name: cc.name });
     }
-    return Array.from(map.values()).sort((a, b) => a.email.localeCompare(b.email));
-  })();
+    return Array.from(map.values());
+  }, [data, ccById]);
 
-  const filteredUsers = userSearch.trim()
-    ? allUsers.filter((u) => u.email.includes(userSearch.toLowerCase()))
-    : allUsers;
+  // ── Table 1 (roles): value filter by Role · sort by e-mail/roles/centros ──────
+  const userFilterOptions = useMemo(() => {
+    const present = new Set<string>();
+    for (const u of allUsers) {
+      if (u.roles.length === 0) present.add("");
+      else for (const r of u.roles) present.add(r);
+    }
+    const role: FilterOption[] = ROLE_ORDER.filter((r) => present.has(r)).map((r) => ({
+      value: r,
+      label: ROLE_LABEL[r],
+    }));
+    if (present.has("")) role.push({ value: "", label: "(sem role)" });
+    return { role };
+  }, [allUsers]);
 
-  const filteredHeads = (() => {
+  const userSortKey = (u: UserSummary, f: UsersSortField): string | number => {
+    switch (f) {
+      case "email":
+        return u.email.toLowerCase();
+      case "roles":
+        return u.roles.length ? [...u.roles].map((r) => ROLE_LABEL[r]).sort().join(", ") : "";
+      case "centers":
+        return u.headCenters.length;
+    }
+  };
+
+  const filteredUsers = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    const list = allUsers.filter((u) => {
+      if (q && !u.email.includes(q)) return false;
+      // A user passes the Role filter unless ALL of its roles are unchecked
+      // (users with no role match on the "" blank sentinel).
+      const roleVals = u.roles.length ? (u.roles as string[]) : [""];
+      if (excludedUsers.role && roleVals.every((r) => excludedUsers.role!.has(r))) return false;
+      return true;
+    });
+    return [...list].sort((a, b) => cmpKeys(userSortKey(a, uField), userSortKey(b, uField), uDir));
+  }, [allUsers, userSearch, excludedUsers, uField, uDir]);
+
+  // ── Table 2 (heads): value filter by Departamento · sort by CC/e-mail/nome ────
+  const headFilterOptions = useMemo(() => {
+    const present = new Set<string>();
+    for (const h of data?.heads ?? []) present.add(ccById.get(h.cost_center_id)?.department ?? "");
+    const dept: FilterOption[] = [...present]
+      .map((d) => ({ value: d, label: d || "(Vazias)" }))
+      .sort((a, b) => (a.value === "" ? 1 : b.value === "" ? -1 : a.label.localeCompare(b.label)));
+    return { dept };
+  }, [data, ccById]);
+
+  const headSortKey = (h: HeadRow, f: HeadsSortField): string | number => {
+    const cc = ccById.get(h.cost_center_id);
+    switch (f) {
+      case "cc":
+        return cc?.code ?? "";
+      case "email":
+        return h.head_email.toLowerCase();
+      case "name":
+        return (h.head_name ?? "").toLowerCase();
+    }
+  };
+
+  const filteredHeads = useMemo(() => {
     if (!data) return [];
-    const q = headSearch.toLowerCase().trim();
-    return q
-      ? data.heads.filter((h) => {
-          const cc = data.costCenters.find((c) => c.id === h.cost_center_id);
-          return (
-            h.head_email.includes(q) ||
-            (cc?.code.toLowerCase().includes(q) ?? false) ||
-            (cc?.name.toLowerCase().includes(q) ?? false)
-          );
-        })
-      : data.heads;
-  })();
+    const q = headSearch.trim().toLowerCase();
+    const list = data.heads.filter((h) => {
+      const cc = ccById.get(h.cost_center_id);
+      if (q) {
+        const hit =
+          h.head_email.includes(q) ||
+          (cc?.code.toLowerCase().includes(q) ?? false) ||
+          (cc?.name.toLowerCase().includes(q) ?? false);
+        if (!hit) return false;
+      }
+      if (excludedHeads.dept?.has(cc?.department ?? "")) return false;
+      return true;
+    });
+    return [...list].sort((a, b) => cmpKeys(headSortKey(a, hField), headSortKey(b, hField), hDir));
+  }, [data, ccById, headSearch, excludedHeads, hField, hDir]);
+
+  // ── Table 4 (cleanup): value filter by Status/Solicitante/Fornecedor/Centro ───
+  const reqFilterOptions = useMemo(() => {
+    const requester = new Map<string, string>();
+    const supplier = new Map<string, string>();
+    const cc = new Map<string, string>();
+    const statusPresent = new Set<string>();
+    for (const r of requests ?? []) {
+      requester.set(r.requester_email ?? "", r.requester_email ?? "");
+      supplier.set(r.supplier_name ?? "", r.supplier_name ?? "");
+      const code = r.cost_centers?.code ?? "";
+      cc.set(code, r.cost_centers ? `${r.cost_centers.code} — ${r.cost_centers.name}` : code);
+      statusPresent.add(r.status);
+    }
+    const status: FilterOption[] = REQUEST_STATUS_ORDER.filter((s) => statusPresent.has(s)).map((s) => ({
+      value: s,
+      label: STATUS_LABEL[s] ?? s,
+    }));
+    return {
+      requester: optionsByLabel(requester),
+      supplier: optionsByLabel(supplier),
+      cc: optionsByLabel(cc),
+      status,
+    };
+  }, [requests]);
+
+  const reqSortKey = (r: RequestRow, f: ReqSortField): string | number => {
+    switch (f) {
+      case "id":
+        return r.display_id ?? "";
+      case "requester":
+        return (r.requester_email ?? "").toLowerCase();
+      case "supplier":
+        return (r.supplier_name ?? "").toLowerCase();
+      case "cc":
+        return r.cost_centers?.code ?? "";
+      case "status":
+        return REQUEST_STATUS_RANK[r.status as RequestStatus] ?? 99;
+      case "amount":
+        return Number(r.total_amount) || 0;
+      case "date":
+        return r.created_at ?? "";
+    }
+  };
+
+  const requestRows = useMemo(() => {
+    const list = (requests ?? []).filter((r) => {
+      if (excludedReq.requester?.has(r.requester_email ?? "")) return false;
+      if (excludedReq.supplier?.has(r.supplier_name ?? "")) return false;
+      if (excludedReq.cc?.has(r.cost_centers?.code ?? "")) return false;
+      if (excludedReq.status?.has(r.status)) return false;
+      return true;
+    });
+    return [...list].sort((a, b) => cmpKeys(reqSortKey(a, rField), reqSortKey(b, rField), rDir));
+  }, [requests, excludedReq, rField, rDir]);
+
+  // "Any column filter active" flags + clear-all handlers, per table.
+  const usersFilterActive = !!userSearch || (excludedUsers.role?.size ?? 0) > 0;
+  const headsFilterActive = !!headSearch || (excludedHeads.dept?.size ?? 0) > 0;
+  const reqFilterActive = ["requester", "supplier", "cc", "status"].some(
+    (k) => (excludedReq[k]?.size ?? 0) > 0,
+  );
+  const clearUsersFilters = () => {
+    setUserSearch("");
+    setExcludedUsers({});
+  };
+  const clearHeadsFilters = () => {
+    setHeadSearch("");
+    setExcludedHeads({});
+  };
+  const clearReqFilters = () => setExcludedReq({});
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
 
@@ -515,7 +718,7 @@ export function AdminDashboard() {
         <SectionTitle>Roles de usuários</SectionTitle>
         <Card>
           {/* Search */}
-          <div className="border-b border-[var(--line)] px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-3">
             <Input
               type="search"
               placeholder="Filtrar por e-mail..."
@@ -523,6 +726,14 @@ export function AdminDashboard() {
               onChange={(e) => setUserSearch(e.target.value)}
               className="w-72"
             />
+            {usersFilterActive && (
+              <button
+                onClick={clearUsersFilters}
+                className="rounded text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              >
+                Limpar filtros
+              </button>
+            )}
           </div>
 
           {/* Table */}
@@ -530,9 +741,19 @@ export function AdminDashboard() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[var(--line)]">
-                  <Th>E-mail</Th>
-                  <Th>Roles</Th>
-                  <Th>Centros (aprovador)</Th>
+                  <FilterHeader
+                    label="E-mail" field="email" active={uField} dir={uDir} setSort={uSetSort} className="px-4"
+                  />
+                  <FilterHeader
+                    label="Roles" field="roles" active={uField} dir={uDir} setSort={uSetSort} className="px-4"
+                    options={userFilterOptions.role} excluded={excludedUsers.role}
+                    onToggle={(v) => toggleValIn(setExcludedUsers, "role", v)}
+                    onSelectAll={() => selectAllIn(setExcludedUsers, "role")}
+                    onClearAll={() => clearValsIn(setExcludedUsers, "role", userFilterOptions.role)}
+                  />
+                  <FilterHeader
+                    label="Centros (aprovador)" field="centers" active={uField} dir={uDir} setSort={uSetSort} className="px-4"
+                  />
                 </tr>
               </thead>
               <tbody>
@@ -615,7 +836,7 @@ export function AdminDashboard() {
         <SectionTitle>Responsáveis por centro de custo</SectionTitle>
         <Card>
           {/* Search */}
-          <div className="border-b border-[var(--line)] px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-3">
             <Input
               type="search"
               placeholder="Filtrar por código, nome ou e-mail..."
@@ -623,6 +844,14 @@ export function AdminDashboard() {
               onChange={(e) => setHeadSearch(e.target.value)}
               className="w-80"
             />
+            {headsFilterActive && (
+              <button
+                onClick={clearHeadsFilters}
+                className="rounded text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              >
+                Limpar filtros
+              </button>
+            )}
           </div>
 
           {/* Table */}
@@ -630,9 +859,19 @@ export function AdminDashboard() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[var(--line)]">
-                  <Th>Centro de custo</Th>
-                  <Th>E-mail responsável</Th>
-                  <Th>Nome</Th>
+                  <FilterHeader
+                    label="Centro de custo" field="cc" active={hField} dir={hDir} setSort={hSetSort} className="px-4"
+                    options={headFilterOptions.dept} excluded={excludedHeads.dept}
+                    onToggle={(v) => toggleValIn(setExcludedHeads, "dept", v)}
+                    onSelectAll={() => selectAllIn(setExcludedHeads, "dept")}
+                    onClearAll={() => clearValsIn(setExcludedHeads, "dept", headFilterOptions.dept)}
+                  />
+                  <FilterHeader
+                    label="E-mail responsável" field="email" active={hField} dir={hDir} setSort={hSetSort} className="px-4"
+                  />
+                  <FilterHeader
+                    label="Nome" field="name" active={hField} dir={hDir} setSort={hSetSort} className="px-4"
+                  />
                   <Th />
                 </tr>
               </thead>
@@ -859,19 +1098,29 @@ export function AdminDashboard() {
           Use apenas para limpar dados de teste.
         </p>
         <Card>
-          <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-3">
             <span className="text-sm text-[var(--muted)]">
               {requests === null
                 ? "Clique em carregar para listar as solicitações."
                 : `${requests.length} solicitação(ões) no sistema`}
             </span>
-            <Btn
-              variant="primary"
-              onClick={() => void loadRequests()}
-              disabled={requestsLoading}
-            >
-              {requestsLoading ? "Carregando..." : requests === null ? "Carregar" : "Atualizar"}
-            </Btn>
+            <div className="flex items-center gap-3">
+              {requests !== null && reqFilterActive && (
+                <button
+                  onClick={clearReqFilters}
+                  className="rounded text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                >
+                  Limpar filtros
+                </button>
+              )}
+              <Btn
+                variant="primary"
+                onClick={() => void loadRequests()}
+                disabled={requestsLoading}
+              >
+                {requestsLoading ? "Carregando..." : requests === null ? "Carregar" : "Atualizar"}
+              </Btn>
+            </div>
           </div>
 
           {requests !== null && (
@@ -879,21 +1128,45 @@ export function AdminDashboard() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--line)]">
-                    <Th>ID</Th>
-                    <Th>Solicitante</Th>
-                    <Th>Fornecedor</Th>
-                    <Th>Centro</Th>
-                    <Th>Status</Th>
-                    <Th>Valor</Th>
-                    <Th>Data</Th>
+                    <FilterHeader label="ID" field="id" active={rField} dir={rDir} setSort={rSetSort} className="px-4" />
+                    <FilterHeader
+                      label="Solicitante" field="requester" active={rField} dir={rDir} setSort={rSetSort} className="px-4"
+                      options={reqFilterOptions.requester} excluded={excludedReq.requester}
+                      onToggle={(v) => toggleValIn(setExcludedReq, "requester", v)}
+                      onSelectAll={() => selectAllIn(setExcludedReq, "requester")}
+                      onClearAll={() => clearValsIn(setExcludedReq, "requester", reqFilterOptions.requester)}
+                    />
+                    <FilterHeader
+                      label="Fornecedor" field="supplier" active={rField} dir={rDir} setSort={rSetSort} className="px-4"
+                      options={reqFilterOptions.supplier} excluded={excludedReq.supplier}
+                      onToggle={(v) => toggleValIn(setExcludedReq, "supplier", v)}
+                      onSelectAll={() => selectAllIn(setExcludedReq, "supplier")}
+                      onClearAll={() => clearValsIn(setExcludedReq, "supplier", reqFilterOptions.supplier)}
+                    />
+                    <FilterHeader
+                      label="Centro" field="cc" active={rField} dir={rDir} setSort={rSetSort} className="px-4"
+                      options={reqFilterOptions.cc} excluded={excludedReq.cc}
+                      onToggle={(v) => toggleValIn(setExcludedReq, "cc", v)}
+                      onSelectAll={() => selectAllIn(setExcludedReq, "cc")}
+                      onClearAll={() => clearValsIn(setExcludedReq, "cc", reqFilterOptions.cc)}
+                    />
+                    <FilterHeader
+                      label="Status" field="status" active={rField} dir={rDir} setSort={rSetSort} className="px-4"
+                      options={reqFilterOptions.status} excluded={excludedReq.status}
+                      onToggle={(v) => toggleValIn(setExcludedReq, "status", v)}
+                      onSelectAll={() => selectAllIn(setExcludedReq, "status")}
+                      onClearAll={() => clearValsIn(setExcludedReq, "status", reqFilterOptions.status)}
+                    />
+                    <FilterHeader label="Valor" field="amount" active={rField} dir={rDir} setSort={rSetSort} align="right" className="px-4" />
+                    <FilterHeader label="Data" field="date" active={rField} dir={rDir} setSort={rSetSort} className="px-4" />
                     <Th />
                   </tr>
                 </thead>
                 <tbody>
-                  {requests.length === 0 ? (
-                    <Empty label="Nenhuma solicitação encontrada." cols={8} />
+                  {requestRows.length === 0 ? (
+                    <Empty label={reqFilterActive ? "Nenhuma solicitação com os filtros atuais." : "Nenhuma solicitação encontrada."} cols={8} />
                   ) : (
-                    requests.map((r) => (
+                    requestRows.map((r) => (
                       <tr
                         key={r.id}
                         className="border-b border-[var(--line)] last:border-0"
@@ -915,7 +1188,7 @@ export function AdminDashboard() {
                         <td className="px-4 py-2.5 text-xs">
                           <StatusBadge status={r.status as RequestStatus} />
                         </td>
-                        <td className="v-tabular px-4 py-2.5 font-mono text-xs">
+                        <td className="v-tabular px-4 py-2.5 text-right font-mono text-xs">
                           {new Intl.NumberFormat("pt-BR", {
                             style: "currency",
                             currency: r.currency ?? "BRL",
