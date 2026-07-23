@@ -10,7 +10,7 @@ import { Pagination, usePagination } from "@/components/pagination";
 import { RateioLine } from "@/components/rateio-line";
 import { chargeContributions } from "@/lib/rateio";
 import { brtDateTimeBR, brtYmd, formatBRL, formatDateOnlyBR, isInvalidDMY, maskDMY, parseDMY } from "@/lib/format";
-import { dayBefore, paymentSchedule } from "@/lib/payment-schedule";
+import { paymentSchedule } from "@/lib/payment-schedule";
 import { formatAmount } from "@/lib/payment";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { CostCenter, CostCenterBudget, IncomingCharge } from "@/lib/types";
@@ -82,14 +82,15 @@ const SORT_LABELS: Record<SortField, string> = {
 // The value a charge sorts on for a given field. Dates are yyyy-mm-dd (or ISO for
 // request_date) so lexicographic order is chronological; amount is numeric.
 // "" marks a missing key so it can be pushed to the end regardless of direction.
-function chargeSortKey(c: IncomingCharge, field: SortField, todayYmd: string): string | number {
+function chargeSortKey(c: IncomingCharge, field: SortField): string | number {
   switch (field) {
     case "due":
-      return c.due_date ?? "";
+      // Vencimento = day before the payment date (derived from the API date).
+      return paymentSchedule(c.due_date).vencimento ?? "";
     case "request":
       return c.request_date ?? "";
     case "payment":
-      return paymentSchedule(todayYmd, c.due_date).newPaymentDate;
+      return paymentSchedule(c.due_date).paymentDate ?? "";
     case "amount":
       return Number(c.amount) || 0;
     case "supplier":
@@ -99,15 +100,9 @@ function chargeSortKey(c: IncomingCharge, field: SortField, todayYmd: string): s
   }
 }
 
-function compareCharges(
-  a: IncomingCharge,
-  b: IncomingCharge,
-  field: SortField,
-  dir: SortDir,
-  todayYmd: string,
-): number {
-  const ka = chargeSortKey(a, field, todayYmd);
-  const kb = chargeSortKey(b, field, todayYmd);
+function compareCharges(a: IncomingCharge, b: IncomingCharge, field: SortField, dir: SortDir): number {
+  const ka = chargeSortKey(a, field);
+  const kb = chargeSortKey(b, field);
   // Missing keys ("") always sort last, in both directions.
   const aEmpty = ka === "";
   const bEmpty = kb === "";
@@ -340,9 +335,9 @@ export function ChargesDashboard({
           (statusFilter === "all" || c.status === statusFilter) &&
           (searchQ === "" || matchesChargeSearch(c, searchQ)),
       );
-      return list.sort((a, b) => compareCharges(a, b, sortField, sortDir, todayYmd));
+      return list.sort((a, b) => compareCharges(a, b, sortField, sortDir));
     },
-    [charges, selKey, dueFrom, dueTo, searchQ, statusFilter, sortField, sortDir, todayYmd],
+    [charges, selKey, dueFrom, dueTo, searchQ, statusFilter, sortField, sortDir],
   );
   const decided = useMemo(
     () =>
@@ -869,39 +864,47 @@ export function ChargesDashboard({
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-xs">
                         {(() => {
-                          // "Aprovar até" = the day before the projected payment: the last
-                          // day to approve and still hit that Tue/Fri payment. Payment is
-                          // computed from today (if approved now), so this is always today
-                          // or later. The raw Vencimento from the source is shown below for
-                          // reference (red-struck once it has passed).
-                          const aprovarAte = dayBefore(paymentSchedule(todayYmd, c.due_date).newPaymentDate);
+                          // Vencimento ("aprovar até") = the day before the payment date
+                          // (last day to approve and still hit that payment). Red-struck
+                          // once it has passed.
+                          const { vencimento } = paymentSchedule(c.due_date);
+                          if (!vencimento) return <span className="text-[var(--muted)]">—</span>;
+                          const overdue = vencimento < todayYmd;
+                          return (
+                            <div
+                              className={overdue ? "text-[var(--rejected)] line-through" : "text-[var(--ink)]"}
+                              title="Último dia para aprovar e manter o pagamento na data prevista."
+                            >
+                              {formatDateOnlyBR(vencimento)}
+                            </div>
+                          );
+                        })()}
+                      </td>
+                      <td className="px-2 py-3.5 text-right v-tabular text-xs text-[var(--ink)]">
+                        {(() => {
+                          // Payment date = the API date snapped to a Tue/Fri. The raw date
+                          // that came from the API is shown beneath, flagged when adjusted.
+                          const s = paymentSchedule(c.due_date);
+                          if (!s.paymentDate) return <span className="text-[var(--muted)]">—</span>;
                           return (
                             <>
-                              <div
-                                className="text-[var(--ink)]"
-                                title="Último dia para aprovar e manter o pagamento na data prevista."
-                              >
-                                {formatDateOnlyBR(aprovarAte)}
-                              </div>
-                              {c.due_date && (
+                              <div>{formatDateOnlyBR(s.paymentDate)}</div>
+                              {s.apiDate && (
                                 <div
-                                  className={`mt-0.5 text-[11px] ${
-                                    c.due_date < todayYmd
-                                      ? "text-[var(--rejected)] line-through"
-                                      : "text-[var(--faint)]"
-                                  }`}
-                                  title="Vencimento informado na origem."
+                                  className="mt-0.5 text-[11px] text-[var(--faint)]"
+                                  title={
+                                    s.adjusted
+                                      ? "Data recebida da API — ajustada para o próximo dia de pagamento (ter/sex)."
+                                      : "Data recebida da API."
+                                  }
                                 >
-                                  Venc. {formatDateOnlyBR(c.due_date)}
+                                  API {formatDateOnlyBR(s.apiDate)}
+                                  {s.adjusted ? " ⟶ ajust." : ""}
                                 </div>
                               )}
                             </>
                           );
                         })()}
-                      </td>
-                      <td className="px-2 py-3.5 text-right v-tabular text-xs text-[var(--ink)]">
-                        {/* Payment date if approved now: max(pay-day after Vencimento, pay-day after today). */}
-                        {formatDateOnlyBR(paymentSchedule(todayYmd, c.due_date).newPaymentDate)}
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-sm font-bold">{fmtMoney(Number(c.amount), c.currency)}</td>
                       <td className="px-5 py-3.5">

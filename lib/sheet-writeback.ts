@@ -1,6 +1,6 @@
 import "server-only";
 
-import { brtYmd, formatDateOnlyBR } from "@/lib/format";
+import { formatDateOnlyBR } from "@/lib/format";
 import { headApprovalTimeString, paymentSchedule } from "@/lib/payment-schedule";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -56,20 +56,20 @@ export async function writeChargeToSheet(charge: {
     return { ok: false, reason: "no_key" };
   }
 
-  let payment_date: string;
+  // Payment date is derived purely from the API date (the requested payment
+  // date), snapped to a Tue/Fri — it does not depend on the decision time.
+  const sched = paymentSchedule(charge.due_date);
+  const payment_date = sched.paymentDate ? formatDateOnlyBR(sched.paymentDate) : ""; // DD/MM/YYYY
   let head_approval_time: string;
   if (charge.action === "deny") {
-    // Refusal: message is just "Recusada"; payment date fixed at ingest — the
-    // first data de pagamento, computed from the charge's arrival (created_at).
-    const ingestIso = charge.created_at ?? charge.decided_at ?? new Date().toISOString();
-    payment_date = formatDateOnlyBR(paymentSchedule(brtYmd(ingestIso), charge.due_date).newPaymentDate);
+    // Refusal: message is just "Recusada"; payment_date is the date it would have had.
     head_approval_time = "Recusada";
   } else {
-    // Approval: payment date + reprogram narrative from the approval time.
+    // Approval: timestamped narrative; "reprogramado" when the API date was moved.
     const approvalIso = charge.decided_at ?? new Date().toISOString();
-    const { newPaymentDate, rescheduled } = paymentSchedule(brtYmd(approvalIso), charge.due_date);
-    payment_date = formatDateOnlyBR(newPaymentDate); // DD/MM/YYYY
-    head_approval_time = headApprovalTimeString(approvalIso, charge.due_date, newPaymentDate, rescheduled);
+    head_approval_time = sched.paymentDate
+      ? headApprovalTimeString(approvalIso, sched.apiDate, sched.paymentDate, sched.adjusted)
+      : "Aprovada";
   }
 
   // Confidential RH charges write back to their own Apps Script.

@@ -29,13 +29,14 @@ interface ChargeRow {
   status?: string;
 }
 
-/** Build the Slack notification payload; data de pagamento is "if approved at
- *  `referenceIso`" (ingest time for immediate sends, send time for the drain).
- *  A rateio charge carries its per-CC split so the DM doesn't misrepresent the
- *  full amount as landing on the primary CC. */
-function toNotification(c: ChargeRow, referenceIso: string): ChargeNotification {
+/** Build the Slack notification payload. Vencimento and data de pagamento are
+ *  derived from the API date (the requested payment date snapped to a Tue/Fri;
+ *  vencimento = payment − 1). A rateio charge carries its per-CC split so the DM
+ *  doesn't misrepresent the full amount as landing on the primary CC. */
+function toNotification(c: ChargeRow): ChargeNotification {
   const cc = c.cost_centers;
   const segs = parseRateio(c.observation);
+  const sched = paymentSchedule(c.due_date);
   return {
     chargeId: c.id,
     displayId: c.display_id,
@@ -43,8 +44,8 @@ function toNotification(c: ChargeRow, referenceIso: string): ChargeNotification 
     amount: Number(c.amount),
     currency: c.currency,
     costCenterLabel: cc ? `${cc.code} — ${cc.name}` : null,
-    dueDate: c.due_date,
-    paymentDate: paymentSchedule(brtYmd(referenceIso), c.due_date).newPaymentDate,
+    dueDate: sched.vencimento,
+    paymentDate: sched.paymentDate,
     confidential: c.sheet_name === "RH",
     rateio:
       segs.length > 1
@@ -158,7 +159,7 @@ export async function notifyChargeIngested(chargeId: string): Promise<void> {
       if (!inserted) continue; // already queued/sent
       if (quiet) continue; // the 09:00 drain will send it
 
-      const sent = await notifyChargeHead(head_email, toNotification(charge, nowIso));
+      const sent = await notifyChargeHead(head_email, toNotification(charge));
       if (sent) {
         const { error: upErr } = await admin
           .from("charge_notification_queue")
@@ -223,7 +224,7 @@ export async function drainChargeNotificationQueue(): Promise<{ sent: number; sk
         continue;
       }
 
-      const result = await notifyChargeHead(row.head_email, toNotification(charge, new Date().toISOString()));
+      const result = await notifyChargeHead(row.head_email, toNotification(charge));
       if (result) {
         await admin
           .from("charge_notification_queue")
