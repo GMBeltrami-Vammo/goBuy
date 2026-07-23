@@ -547,7 +547,7 @@ export function ChargesDashboard({
               className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line-strong)] px-3 py-1.5 text-xs font-medium text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             >
               <span aria-hidden>🏖️</span>
-              Férias
+              Delegar aprovação (Ausência)
             </button>
           )}
           {canSlack && slackOn !== null && (

@@ -45,6 +45,7 @@ export const getSessionContext = cache(async (): Promise<SessionContext | null> 
 
   const isRhViewer = email === RH_VIEWER_EMAIL;
   const roles = (rolesRes.data ?? []).map((r) => r.role as AppRole);
+  const isAdmin = roles.includes("admin");
   // The RH approver is a confidential RH-only viewer, never a normal CC head —
   // even if seeded as head of the HR CCs — so they never see non-RH charges or
   // budgets (RLS enforces the same). Empty their head centers here.
@@ -53,8 +54,20 @@ export const getSessionContext = cache(async (): Promise<SessionContext | null> 
   const delegatedCenterIds = isRhViewer
     ? []
     : ((delRes.data ?? []) as { cost_center_id: number }[]).map((r) => r.cost_center_id);
-  // What the user answers for = own head CCs ∪ delegated CCs.
-  const headCenterIds = [...new Set([...ownHeadCenterIds, ...delegatedCenterIds])];
+
+  // What the user answers for. Admins are head of EVERY active cost center
+  // (superuser) — computed, so no explicit cost_center_heads rows are needed.
+  // Everyone else: their own head CCs ∪ any they're an active substitute for.
+  // The RH approver stays RH-only (empty).
+  let headCenterIds: number[];
+  if (isRhViewer) {
+    headCenterIds = [];
+  } else if (isAdmin) {
+    const { data: allCcs } = await admin.from("cost_centers").select("id").eq("active", true);
+    headCenterIds = (allCcs ?? []).map((r) => r.id as number);
+  } else {
+    headCenterIds = [...new Set([...ownHeadCenterIds, ...delegatedCenterIds])];
+  }
 
   return {
     email,

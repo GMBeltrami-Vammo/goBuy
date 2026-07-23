@@ -128,12 +128,12 @@ export function FeriasDialog({
       onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}
       role="dialog"
       aria-modal="true"
-      aria-label="Férias — delegar aprovações"
+      aria-label="Delegar aprovação — ausência"
     >
       <div className="modal-enter w-full max-w-md rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-[var(--shadow)]">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-base font-bold">🏖️ Férias — delegar aprovações</h2>
+            <h2 className="text-base font-bold">🏖️ Delegar aprovação (ausência)</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
               Aloque um substituto para responder suas cobranças durante uma janela. Passada a data final,
               o acesso dele é removido automaticamente.
