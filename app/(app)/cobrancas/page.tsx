@@ -27,6 +27,7 @@ export default async function CobrancasPage() {
       centerIds={ctx.headCenterIds}
       allCostCenters={allCostCenters ?? []}
       isRhViewer={ctx.isRhViewer}
+      canDelegate={ctx.canDelegate}
     />
   );
 }

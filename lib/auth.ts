@@ -29,7 +29,7 @@ export const getSessionContext = cache(async (): Promise<SessionContext | null> 
   const email = session.user.email.toLowerCase();
   const admin = supabaseAdmin();
 
-  const [headRes, rolesRes] = await Promise.all([
+  const [headRes, rolesRes, delRes] = await Promise.all([
     // Only active cost centers — deactivated ones must not surface to the head.
     admin
       .from("cost_center_heads")
@@ -37,6 +37,9 @@ export const getSessionContext = cache(async (): Promise<SessionContext | null> 
       .eq("head_email", email)
       .eq("cost_centers.active", true),
     admin.from("user_roles").select("role").eq("user_email", email),
+    // Cost centers this user is an active substitute (férias) for. Defensive:
+    // returns {data:null} (handled as []) if the RPC isn't deployed yet.
+    admin.rpc("delegated_center_ids", { p_email: email }),
   ]);
 
   const isRhViewer = email === RH_VIEWER_EMAIL;
@@ -44,7 +47,13 @@ export const getSessionContext = cache(async (): Promise<SessionContext | null> 
   // The RH approver is a confidential RH-only viewer, never a normal CC head —
   // even if seeded as head of the HR CCs — so they never see non-RH charges or
   // budgets (RLS enforces the same). Empty their head centers here.
-  const headCenterIds = isRhViewer ? [] : (headRes.data ?? []).map((r) => r.cost_center_id as number);
+  const ownHeadCenterIds = isRhViewer ? [] : (headRes.data ?? []).map((r) => r.cost_center_id as number);
+  // Active delegations grant the substitute the delegator's CCs for the window.
+  const delegatedCenterIds = isRhViewer
+    ? []
+    : ((delRes.data ?? []) as { cost_center_id: number }[]).map((r) => r.cost_center_id);
+  // What the user answers for = own head CCs ∪ delegated CCs.
+  const headCenterIds = [...new Set([...ownHeadCenterIds, ...delegatedCenterIds])];
 
   return {
     email,
@@ -52,6 +61,8 @@ export const getSessionContext = cache(async (): Promise<SessionContext | null> 
     avatarUrl: session.user.image ?? null,
     isHead: headCenterIds.length > 0,
     headCenterIds,
+    // Only real heads (not pure substitutes) may hand their approvals to someone else.
+    canDelegate: ownHeadCenterIds.length > 0,
     roles,
     isFullAppAdmin: FULL_APP_ADMINS.includes(email),
     isReclassifier: roles.includes("reclassifier"),

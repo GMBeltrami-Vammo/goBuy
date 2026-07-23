@@ -64,21 +64,60 @@ async function prefEnabled(email: string): Promise<boolean> {
   return !!data;
 }
 
-/** Heads of a cost center who have Slack notifications enabled (opt-in). */
-async function optedInHeads(costCenterId: number): Promise<string[]> {
+/** Emails of active substitutes (férias) for a set of heads, right now (BRT). */
+async function activeDelegatesFor(headEmails: string[]): Promise<string[]> {
+  if (headEmails.length === 0) return [];
+  const today = brtYmd(new Date().toISOString());
+  const { data } = await supabaseAdmin()
+    .from("charge_delegations")
+    .select("delegate_email")
+    .in("delegator_email", headEmails)
+    .is("revoked_at", null)
+    .lte("starts_on", today)
+    .gte("ends_on", today);
+  return (data ?? []).map((d) => (d as { delegate_email: string }).delegate_email);
+}
+
+/**
+ * Recipients for a cost center's charge notifications who have Slack enabled:
+ * the CC's heads PLUS anyone currently standing in for them (active férias
+ * delegation). Opt-in — a recipient must have notifications_enabled = true.
+ */
+async function optedInRecipients(costCenterId: number): Promise<string[]> {
   const admin = supabaseAdmin();
   const { data: heads } = await admin
     .from("cost_center_heads")
     .select("head_email")
     .eq("cost_center_id", costCenterId);
-  const emails = (heads ?? []).map((h) => (h as { head_email: string }).head_email);
-  if (emails.length === 0) return [];
+  const headEmails = (heads ?? []).map((h) => (h as { head_email: string }).head_email);
+  if (headEmails.length === 0) return [];
+  const delegates = await activeDelegatesFor(headEmails);
+  const candidates = [...new Set([...headEmails, ...delegates])];
   const { data: prefs } = await admin
     .from("head_slack_prefs")
     .select("head_email")
-    .in("head_email", emails)
+    .in("head_email", candidates)
     .eq("notifications_enabled", true);
   return (prefs ?? []).map((p) => (p as { head_email: string }).head_email);
+}
+
+/** Is this email still a valid recipient for the CC — a head OR an active substitute? */
+async function isActiveRecipient(email: string, costCenterId: number): Promise<boolean> {
+  const admin = supabaseAdmin();
+  const { data: headRow } = await admin
+    .from("cost_center_heads")
+    .select("cost_center_id")
+    .eq("cost_center_id", costCenterId)
+    .eq("head_email", email)
+    .maybeSingle();
+  if (headRow) return true;
+  const { data: heads } = await admin
+    .from("cost_center_heads")
+    .select("head_email")
+    .eq("cost_center_id", costCenterId);
+  const headEmails = (heads ?? []).map((h) => (h as { head_email: string }).head_email);
+  const delegates = await activeDelegatesFor(headEmails);
+  return delegates.includes(email);
 }
 
 /**
@@ -97,7 +136,7 @@ export async function notifyChargeIngested(chargeId: string): Promise<void> {
   const heads =
     charge.sheet_name === "RH"
       ? (await prefEnabled(RH_VIEWER_EMAIL)) ? [RH_VIEWER_EMAIL] : []
-      : await optedInHeads(charge.cost_center_id);
+      : await optedInRecipients(charge.cost_center_id);
   if (heads.length === 0) return;
 
   const nowIso = new Date().toISOString();
@@ -168,19 +207,13 @@ export async function drainChargeNotificationQueue(): Promise<{ sent: number; sk
 
       // Re-check the recipient is still valid for this charge, so nobody gets a
       // DM they can no longer see in-app. RH → must be the RH approver; else →
-      // must still be a head of the charge's CC.
+      // must still be a head of the charge's CC OR an active substitute.
       let stillValid = false;
       if (charge) {
         if (charge.sheet_name === "RH") {
           stillValid = row.head_email === RH_VIEWER_EMAIL;
         } else {
-          const { data: headRow } = await admin
-            .from("cost_center_heads")
-            .select("cost_center_id")
-            .eq("cost_center_id", charge.cost_center_id)
-            .eq("head_email", row.head_email)
-            .maybeSingle();
-          stillValid = !!headRow;
+          stillValid = await isActiveRecipient(row.head_email, charge.cost_center_id);
         }
       }
 

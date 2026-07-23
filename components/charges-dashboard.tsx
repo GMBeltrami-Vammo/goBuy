@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ChargeDetailModal } from "@/components/charge-detail-modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { FeriasDialog } from "@/components/ferias-dialog";
 import { Pagination, usePagination } from "@/components/pagination";
 import { RateioLine } from "@/components/rateio-line";
 import { chargeContributions } from "@/lib/rateio";
@@ -130,6 +131,7 @@ export function ChargesDashboard({
   centerIds,
   allCostCenters,
   isRhViewer,
+  canDelegate,
 }: {
   email: string;
   supabaseToken: string;
@@ -138,6 +140,8 @@ export function ChargesDashboard({
   allCostCenters: Pick<CostCenter, "id" | "code" | "name" | "department">[];
   /** The RH approver — gets the Slack toggle even though they head no CC. */
   isRhViewer: boolean;
+  /** Real head (not a pure substitute) → may delegate their approvals (Férias). */
+  canDelegate: boolean;
 }) {
   const [charges, setCharges] = useState<IncomingCharge[] | null>(null);
   const [centers, setCenters] = useState<CostCenter[]>([]);
@@ -165,6 +169,8 @@ export function ChargesDashboard({
   // Reclassification request modal (head → proposes an optional target CC).
   const [reclassTarget, setReclassTarget] = useState<IncomingCharge | null>(null);
   const [reclassProposedCc, setReclassProposedCc] = useState("");
+  // Férias — delegate approvals to a substitute for a date window.
+  const [feriasOpen, setFeriasOpen] = useState(false);
   const queueRef = useRef<HTMLDivElement>(null);
 
   const monthStart = useMemo(() => {
@@ -539,6 +545,16 @@ export function ChargesDashboard({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {canDelegate && (
+            <button
+              onClick={() => setFeriasOpen(true)}
+              title="Alocar um substituto para responder suas cobranças enquanto você estiver fora"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line-strong)] px-3 py-1.5 text-xs font-medium text-[var(--muted)] transition hover:bg-[var(--surface-2)] hover:text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
+              <span aria-hidden>🏖️</span>
+              Férias
+            </button>
+          )}
           {canSlack && slackOn !== null && (
             <button
               onClick={() => void toggleSlack()}
@@ -986,6 +1002,10 @@ export function ChargesDashboard({
             end={decidedPager.end}
           />
         </div>
+      )}
+
+      {feriasOpen && (
+        <FeriasDialog supabaseToken={supabaseToken} email={email} onClose={() => setFeriasOpen(false)} />
       )}
 
       {detailCc && (

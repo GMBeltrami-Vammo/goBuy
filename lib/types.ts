@@ -174,7 +174,10 @@ export interface SessionContext {
   fullName: string;
   avatarUrl: string | null;
   isHead: boolean;
+  /** Cost centers the user answers for: their own head CCs ∪ any they're an active substitute (férias) for. */
   headCenterIds: number[];
+  /** Heads at least one cost center in their own right → may delegate (Férias). Excludes pure substitutes. */
+  canDelegate: boolean;
   roles: AppRole[];
   /** Email is in the FULL_APP_ADMINS allowlist → may see the full (non-demo) app. */
   isFullAppAdmin: boolean;
@@ -183,6 +186,17 @@ export interface SessionContext {
   /** The RH approver → sees ONLY confidential "RH" charges and decides them. */
   isRhViewer: boolean;
   supabaseToken: string;
+}
+
+export interface ChargeDelegation {
+  id: number;
+  delegator_email: string;
+  delegate_email: string;
+  starts_on: string; // yyyy-mm-dd
+  ends_on: string; // yyyy-mm-dd
+  created_by_email: string;
+  created_at: string;
+  revoked_at: string | null;
 }
 
 export interface IncomingCharge {
