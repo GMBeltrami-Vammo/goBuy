@@ -8,8 +8,9 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { FeriasDialog } from "@/components/ferias-dialog";
 import { Pagination, usePagination } from "@/components/pagination";
 import { RateioLine } from "@/components/rateio-line";
+import { SortHeader, useSort } from "@/components/table-sort";
 import { chargeContributions } from "@/lib/rateio";
-import { brtDateTimeBR, brtYmd, formatBRL, formatDateOnlyBR, isInvalidDMY, maskDMY, parseDMY } from "@/lib/format";
+import { brtDateTimeBR, brtYmd, formatBRL, formatDateOnlyBR } from "@/lib/format";
 import { paymentSchedule } from "@/lib/payment-schedule";
 import { formatAmount } from "@/lib/payment";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -29,20 +30,32 @@ const HeadAggregateChart = dynamic(
 // firms up on approval). Denied never consumes.
 const COMMITTED_STATUSES = new Set<IncomingCharge["status"]>(["approved", "pending", "reclassifying"]);
 
-const CHARGE_STATUS_LABEL: Record<IncomingCharge["status"], string> = {
+type ChargeStatus = IncomingCharge["status"];
+
+const CHARGE_STATUS_LABEL: Record<ChargeStatus, string> = {
   pending: "Pendente",
   approved: "Aprovada",
   denied: "Recusada",
   reclassifying: "Em mudança de CC",
 };
-const CHARGE_STATUS_TONE: Record<IncomingCharge["status"], string> = {
+const CHARGE_STATUS_TONE: Record<ChargeStatus, string> = {
   pending: "pending",
   approved: "approved",
   denied: "rejected",
   reclassifying: "pending",
 };
+// Sort rank so the Status column orders sensibly (actionable first).
+const STATUS_RANK: Record<ChargeStatus, number> = { pending: 0, reclassifying: 1, approved: 2, denied: 3 };
+// Status filter chips + the default view (the decision queue).
+const STATUS_OPTIONS: { value: ChargeStatus; label: string }[] = [
+  { value: "pending", label: "Pendente" },
+  { value: "reclassifying", label: "Em mudança de CC" },
+  { value: "approved", label: "Aprovada" },
+  { value: "denied", label: "Recusada" },
+];
+const DEFAULT_STATUS: ChargeStatus[] = ["pending", "reclassifying"];
 
-function ChargeStatusBadge({ status }: { status: IncomingCharge["status"] }) {
+function ChargeStatusBadge({ status }: { status: ChargeStatus }) {
   const tone = CHARGE_STATUS_TONE[status];
   return (
     <span
@@ -65,42 +78,35 @@ function fmtMoney(n: number, currency: string): string {
   }
 }
 
-// ─── Pending-queue sorting & search ───────────────────────────────────────────
-type SortField = "due" | "request" | "payment" | "amount" | "supplier" | "cc";
-type SortDir = "asc" | "desc";
-type StatusFilter = "all" | "pending" | "reclassifying";
-
-const SORT_LABELS: Record<SortField, string> = {
-  due: "Vencimento",
-  request: "Data da solicitação",
-  payment: "Data de pagamento",
-  amount: "Valor",
-  supplier: "Fornecedor",
-  cc: "Centro de custo",
-};
+// ─── Sorting & search ─────────────────────────────────────────────────────────
+type SortField = "id" | "request" | "supplier" | "cc" | "due" | "payment" | "amount" | "status";
 
 // The value a charge sorts on for a given field. Dates are yyyy-mm-dd (or ISO for
-// request_date) so lexicographic order is chronological; amount is numeric.
+// request_date) so lexicographic order is chronological; amount/status are numeric.
 // "" marks a missing key so it can be pushed to the end regardless of direction.
 function chargeSortKey(c: IncomingCharge, field: SortField): string | number {
   switch (field) {
-    case "due":
-      // Vencimento = day before the payment date (derived from the API date).
-      return paymentSchedule(c.due_date).vencimento ?? "";
+    case "id":
+      return c.display_id ?? "";
     case "request":
       return c.request_date ?? "";
-    case "payment":
-      return paymentSchedule(c.due_date).paymentDate ?? "";
-    case "amount":
-      return Number(c.amount) || 0;
     case "supplier":
       return (c.supplier_name ?? "").toLowerCase();
     case "cc":
       return c.cost_centers?.code ?? "";
+    case "due":
+      // Vencimento = day before the payment date (derived from the API date).
+      return paymentSchedule(c.due_date).vencimento ?? "";
+    case "payment":
+      return paymentSchedule(c.due_date).paymentDate ?? "";
+    case "amount":
+      return Number(c.amount) || 0;
+    case "status":
+      return STATUS_RANK[c.status];
   }
 }
 
-function compareCharges(a: IncomingCharge, b: IncomingCharge, field: SortField, dir: SortDir): number {
+function compareCharges(a: IncomingCharge, b: IncomingCharge, field: SortField, dir: "asc" | "desc"): number {
   const ka = chargeSortKey(a, field);
   const kb = chargeSortKey(b, field);
   // Missing keys ("") always sort last, in both directions.
@@ -135,7 +141,7 @@ export function ChargesDashboard({
   allCostCenters: Pick<CostCenter, "id" | "code" | "name" | "department">[];
   /** The RH approver — gets the Slack toggle even though they head no CC. */
   isRhViewer: boolean;
-  /** Real head (not a pure substitute) → may delegate their approvals (Férias). */
+  /** Heads + admins see the delegate button (admins delegate but transfer nothing). */
   canDelegate: boolean;
 }) {
   const [charges, setCharges] = useState<IncomingCharge[] | null>(null);
@@ -150,21 +156,17 @@ export function ChargesDashboard({
   const [viewMode, setViewMode] = useState<"pizza" | "barra">("pizza");
   const [detailCc, setDetailCc] = useState<CostCenter | null>(null);
   const [selectedCcs, setSelectedCcs] = useState<Set<number>>(new Set());
-  const [dueFrom, setDueFrom] = useState("");
-  const [dueTo, setDueTo] = useState("");
-  // Pending-queue search / status filter / sort (default: Vencimento ascending,
-  // matching the load order).
+  // Table controls: global search, Status filter (chips), column sort.
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [sortField, setSortField] = useState<SortField>("due");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [statusSel, setStatusSel] = useState<Set<ChargeStatus>>(new Set(DEFAULT_STATUS));
+  const { field: sortField, dir: sortDir, onSort } = useSort<SortField>("due", "asc");
   // Per-head Slack notification preference (null = still loading; default off).
   const [slackOn, setSlackOn] = useState<boolean | null>(null);
   const [slackBusy, setSlackBusy] = useState(false);
   // Reclassification request modal (head → proposes an optional target CC).
   const [reclassTarget, setReclassTarget] = useState<IncomingCharge | null>(null);
   const [reclassProposedCc, setReclassProposedCc] = useState("");
-  // Férias — delegate approvals to a substitute for a date window.
+  // Delegar aprovação (Ausência) — hand approvals to a substitute for a window.
   const [feriasOpen, setFeriasOpen] = useState(false);
   const queueRef = useRef<HTMLDivElement>(null);
 
@@ -177,8 +179,7 @@ export function ChargesDashboard({
   const hasCenters = centerIds.length > 0;
   // Heads and the RH approver may toggle their Slack notifications.
   const canSlack = hasCenters || isRhViewer;
-  // Today's BRT calendar date — a Vencimento before it is overdue; also the basis
-  // for the projected payment date (used in the table and the payment-date sort).
+  // Today's BRT calendar date — a Vencimento before it is overdue.
   const todayYmd = brtYmd(new Date().toISOString());
 
   const load = useCallback(async () => {
@@ -208,7 +209,7 @@ export function ChargesDashboard({
     void load();
   }, [load]);
 
-  // The CC multi-select scopes BOTH the graphs and the tables. Empty = all.
+  // The CC multi-select scopes BOTH the graphs and the table. Empty = all.
   const isVisible = (id: number) => selectedCcs.size === 0 || selectedCcs.has(id);
   const selKey = [...selectedCcs].sort((a, b) => a - b).join(",");
 
@@ -310,52 +311,51 @@ export function ChargesDashboard({
     new Date(`${iso}T12:00:00`).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
   const isMockOrEmpty = hasCenters && budgets.length === 0;
 
-  // ─── Charge queues (scoped by the multi-select filter) ────────────────────────
-  const dueFromYMD = parseDMY(dueFrom);
-  const dueToYMD = parseDMY(dueTo);
-  const inDueRange = (c: IncomingCharge) => {
-    if (dueFromYMD && (!c.due_date || c.due_date < dueFromYMD)) return false;
-    if (dueToYMD && (!c.due_date || c.due_date > dueToYMD)) return false;
-    return true;
-  };
-  const dateInvalid = isInvalidDMY(dueFrom) || isInvalidDMY(dueTo);
+  // ─── Single charge table (all statuses; scoped by CC, Status filter, search) ──
   const searchQ = search.trim().toLowerCase();
-  const anyTableFilter = selectedCcs.size > 0 || !!dueFrom || !!dueTo || !!searchQ || statusFilter !== "all";
+  const statusSelKey = [...statusSel].sort().join(",");
+  const isDefaultStatus =
+    statusSel.size === DEFAULT_STATUS.length && DEFAULT_STATUS.every((s) => statusSel.has(s));
+  const anyTableFilter = selectedCcs.size > 0 || !!searchQ || !isDefaultStatus;
 
-  // The queue shows pending charges AND those in reclassification (blocked, but
-  // still the head's to track). Filtered by CC, Vencimento range, status and free
-  // text, then sorted by the chosen field/direction. Decididas = only approved/denied.
-  const pending = useMemo(
-    () => {
-      const list = (charges ?? []).filter(
-        (c) =>
-          (c.status === "pending" || c.status === "reclassifying") &&
-          isVisible(c.cost_center_id) &&
-          inDueRange(c) &&
-          (statusFilter === "all" || c.status === statusFilter) &&
-          (searchQ === "" || matchesChargeSearch(c, searchQ)),
-      );
-      return list.sort((a, b) => compareCharges(a, b, sortField, sortDir));
-    },
-    [charges, selKey, dueFrom, dueTo, searchQ, statusFilter, sortField, sortDir],
-  );
-  const decided = useMemo(
+  const rows = useMemo(() => {
+    const list = (charges ?? []).filter(
+      (c) =>
+        statusSel.has(c.status) &&
+        isVisible(c.cost_center_id) &&
+        (searchQ === "" || matchesChargeSearch(c, searchQ)),
+    );
+    return [...list].sort((a, b) => compareCharges(a, b, sortField, sortDir));
+  }, [charges, selKey, statusSelKey, searchQ, sortField, sortDir]);
+
+  const pager = usePagination(rows, `charges|${selKey}|${statusSelKey}|${searchQ}|${sortField}|${sortDir}`);
+
+  // Actionable backlog (pending + in reclassification), for the jump button.
+  const actionableCount = useMemo(
     () =>
       (charges ?? []).filter(
-        (c) => (c.status === "approved" || c.status === "denied") && isVisible(c.cost_center_id) && inDueRange(c),
-      ),
-    [charges, selKey, dueFrom, dueTo],
+        (c) => (c.status === "pending" || c.status === "reclassifying") && isVisible(c.cost_center_id),
+      ).length,
+    [charges, selKey],
   );
-
-  const pendingPager = usePagination(
-    pending,
-    `pending|${selKey}|${dueFrom}|${dueTo}|${searchQ}|${statusFilter}|${sortField}|${sortDir}`,
-  );
-  const decidedPager = usePagination(decided, `decided|${selKey}|${dueFrom}|${dueTo}`);
 
   const flash = (msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast(null), 4500);
+  };
+
+  const toggleStatus = (s: ChargeStatus) =>
+    setStatusSel((prev) => {
+      const n = new Set(prev);
+      if (n.has(s)) n.delete(s);
+      else n.add(s);
+      return n;
+    });
+
+  const clearFilters = () => {
+    setSelectedCcs(new Set());
+    setSearch("");
+    setStatusSel(new Set(DEFAULT_STATUS));
   };
 
   // Decide via the API route (not the RPC directly): the route runs the
@@ -382,11 +382,9 @@ export function ChargesDashboard({
     }
   };
 
-  // Optimistic decision: update the UI instantly (the charge moves to Decididas
-  // right away) and run the server call — including the Sheet write-back — in
-  // the background. On failure we roll the row back to its prior state. This
-  // keeps the queue responsive: you can approve the next charge immediately,
-  // without waiting for the previous webhook round-trip.
+  // Optimistic decision: update the UI instantly and run the server call —
+  // including the Sheet write-back — in the background. On failure roll the row
+  // back to its prior state so the queue stays responsive.
   const decideOptimistic = (c: IncomingCharge, action: "approve" | "deny", reason?: string) => {
     if (busyIds.has(c.id)) return;
     const snapshot = c;
@@ -413,7 +411,6 @@ export function ChargesDashboard({
         return next;
       });
       if (!ok) {
-        // Roll the row back to exactly what it was.
         setCharges((prev) => prev?.map((x) => (x.id === c.id ? snapshot : x)) ?? prev);
         flash(
           action === "approve"
@@ -447,9 +444,7 @@ export function ChargesDashboard({
     setReclassTarget(c);
   };
 
-  // Optimistic: mark as "Em mudança de CC" and request reclassification. On
-  // success the head loses the approve/deny buttons; a reclassifier assigns the
-  // new CC and it returns to the (new) head as pending.
+  // Optimistic: mark as "Em mudança de CC" and request reclassification.
   const confirmReclassify = async () => {
     if (!reclassTarget || busyIds.has(reclassTarget.id)) return;
     const target = reclassTarget;
@@ -566,13 +561,13 @@ export function ChargesDashboard({
               Slack {slackOn ? "ativo" : "desativado"}
             </button>
           )}
-          {pending.length > 0 && (
+          {actionableCount > 0 && (
             <button
               onClick={() => queueRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-              title="Ir para a fila de aprovação"
+              title="Ir para a tabela de cobranças"
               className="rounded-full bg-[var(--pending-soft)] px-4 py-1.5 v-tabular text-sm font-bold text-[var(--pending)] transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             >
-              {pending.length} pendente{pending.length === 1 ? "" : "s"} ↓
+              {actionableCount} a decidir ↓
             </button>
           )}
         </div>
@@ -703,106 +698,57 @@ export function ChargesDashboard({
         </>
       )}
 
-      {/* Pending queue */}
+      {/* Charges table (single, all statuses; filter by Status/CC/search, sort by column) */}
       <div ref={queueRef} className="reveal reveal-4 mt-8 scroll-mt-4 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
         <div className="space-y-2.5 border-b border-[var(--line)] px-5 py-3">
-          <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
-            Aguardando sua decisão
-          </h2>
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
+              Cobranças
+            </h2>
             <input
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar fornecedor, NF, ID…"
-              aria-label="Buscar nas cobranças pendentes"
-              className="w-52 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2.5 py-1 text-[11px] text-[var(--ink)] outline-none transition placeholder:text-[var(--faint)] focus:border-[var(--accent)]"
+              aria-label="Buscar nas cobranças"
+              className="w-56 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2.5 py-1 text-[11px] text-[var(--ink)] outline-none transition placeholder:text-[var(--faint)] focus:border-[var(--accent)]"
             />
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="v-tabular text-[10px] uppercase tracking-[0.15em] text-[var(--faint)]">Status</span>
+            {STATUS_OPTIONS.map((o) => {
+              const on = statusSel.has(o.value);
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => toggleStatus(o.value)}
+                  aria-pressed={on}
+                  className={`rounded-full px-2.5 py-1 v-tabular text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
+                    on
+                      ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                      : "border border-[var(--line-strong)] text-[var(--muted)] hover:bg-[var(--surface-2)]"
+                  }`}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
+            <span className="mx-1 h-4 w-px bg-[var(--line)]" aria-hidden />
             <CcMultiSelect
               centers={filterableCenters}
               selected={selectedCcs}
               onToggle={toggleCc}
               onClear={() => setSelectedCcs(new Set())}
             />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-              aria-label="Filtrar por status"
-              className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] font-medium text-[var(--ink)] outline-none transition focus:border-[var(--accent)]"
-            >
-              <option value="all">Todas</option>
-              <option value="pending">Pendentes</option>
-              <option value="reclassifying">Em mudança de CC</option>
-            </select>
-            <span className="ml-1 v-tabular text-[10px] uppercase tracking-[0.15em] text-[var(--faint)]">Venc.</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              maxLength={10}
-              placeholder="dd/mm/yyyy"
-              value={dueFrom}
-              onChange={(e) => setDueFrom(maskDMY(e.target.value))}
-              aria-invalid={isInvalidDMY(dueFrom)}
-              aria-label="Vencimento de (dd/mm/yyyy)"
-              className={`w-24 rounded-md border bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] ${
-                isInvalidDMY(dueFrom) ? "border-[var(--rejected)]" : "border-[var(--line-strong)]"
-              }`}
-            />
-            <span className="text-[11px] text-[var(--faint)]">—</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              maxLength={10}
-              placeholder="dd/mm/yyyy"
-              value={dueTo}
-              onChange={(e) => setDueTo(maskDMY(e.target.value))}
-              aria-invalid={isInvalidDMY(dueTo)}
-              aria-label="Vencimento até (dd/mm/yyyy)"
-              className={`w-24 rounded-md border bg-[var(--bg)] px-2 py-1 text-[11px] outline-none transition focus:border-[var(--accent)] ${
-                isInvalidDMY(dueTo) ? "border-[var(--rejected)]" : "border-[var(--line-strong)]"
-              }`}
-            />
-            {dateInvalid && (
-              <span role="alert" className="text-[11px] text-[var(--rejected)]">Data inválida</span>
-            )}
             {anyTableFilter && (
               <button
-                onClick={() => {
-                  setSelectedCcs(new Set());
-                  setDueFrom("");
-                  setDueTo("");
-                  setSearch("");
-                  setStatusFilter("all");
-                }}
+                onClick={clearFilters}
                 className="ml-1 rounded text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               >
                 Limpar filtros
               </button>
             )}
-            <div className="ml-auto flex items-center gap-1.5">
-              <label htmlFor="pending-sort" className="v-tabular text-[10px] uppercase tracking-[0.15em] text-[var(--faint)]">
-                Ordenar por
-              </label>
-              <select
-                id="pending-sort"
-                value={sortField}
-                onChange={(e) => setSortField(e.target.value as SortField)}
-                aria-label="Ordenar cobranças por"
-                className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] font-medium text-[var(--ink)] outline-none transition focus:border-[var(--accent)]"
-              >
-                {(Object.keys(SORT_LABELS) as SortField[]).map((f) => (
-                  <option key={f} value={f}>{SORT_LABELS[f]}</option>
-                ))}
-              </select>
-              <button
-                onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
-                aria-label={sortDir === "asc" ? "Ordem crescente (toque para inverter)" : "Ordem decrescente (toque para inverter)"}
-                title={sortDir === "asc" ? "Crescente — toque para inverter" : "Decrescente — toque para inverter"}
-                className="rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[11px] font-bold text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-              >
-                {sortDir === "asc" ? "↑" : "↓"}
-              </button>
-            </div>
           </div>
         </div>
 
@@ -812,28 +758,29 @@ export function ChargesDashboard({
             <SkeletonRow />
             <SkeletonRow />
           </div>
-        ) : pending.length === 0 ? (
+        ) : rows.length === 0 ? (
           <p className="px-5 py-12 text-center text-sm text-[var(--faint)]">
-            Nenhuma cobrança pendente {anyTableFilter ? "com os filtros atuais" : "por aqui"}.
+            Nenhuma cobrança {anyTableFilter ? "com os filtros atuais" : "por aqui"}.
           </p>
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full" aria-label="Cobranças pendentes">
-                <thead className="hidden sm:table-header-group">
+              <table className="w-full" aria-label="Cobranças">
+                <thead>
                   <tr className="border-b border-[var(--line)]">
-                    <th scope="col" className="w-[80px] px-5 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">ID</th>
-                    <th scope="col" className="w-[120px] px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Data da solicitação</th>
-                    <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Fornecedor</th>
-                    <th scope="col" className="px-2 py-2.5 text-left v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Centro de custo</th>
-                    <th scope="col" className="w-[100px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Aprovar até</th>
-                    <th scope="col" className="w-[110px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Data de pagamento</th>
-                    <th scope="col" className="w-[110px] px-2 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Valor</th>
-                    <th scope="col" className="w-[220px] px-5 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Ação</th>
+                    <SortHeader label="ID" field="id" active={sortField} dir={sortDir} onSort={onSort} width="80px" className="pl-5" />
+                    <SortHeader label="Data da solicitação" field="request" active={sortField} dir={sortDir} onSort={onSort} width="120px" />
+                    <SortHeader label="Fornecedor" field="supplier" active={sortField} dir={sortDir} onSort={onSort} />
+                    <SortHeader label="Centro de custo" field="cc" active={sortField} dir={sortDir} onSort={onSort} />
+                    <SortHeader label="Aprovar até" field="due" active={sortField} dir={sortDir} onSort={onSort} align="right" width="110px" />
+                    <SortHeader label="Data de pagamento" field="payment" active={sortField} dir={sortDir} onSort={onSort} align="right" width="120px" />
+                    <SortHeader label="Valor" field="amount" active={sortField} dir={sortDir} onSort={onSort} align="right" width="110px" />
+                    <SortHeader label="Status" field="status" active={sortField} dir={sortDir} onSort={onSort} width="130px" />
+                    <th scope="col" className="w-[230px] px-5 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Ação</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pendingPager.pageItems.map((c) => (
+                  {pager.pageItems.map((c) => (
                     <tr key={c.id} className="border-b border-[var(--line)] last:border-b-0 align-top">
                       <td className="px-5 py-3.5 v-tabular text-xs font-semibold text-[var(--accent)]">{c.display_id}</td>
                       <td className="px-2 py-3.5 v-tabular text-[11px] text-[var(--muted)]">
@@ -864,9 +811,7 @@ export function ChargesDashboard({
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-xs">
                         {(() => {
-                          // Vencimento ("aprovar até") = the day before the payment date
-                          // (last day to approve and still hit that payment). Red-struck
-                          // once it has passed.
+                          // Vencimento ("aprovar até") = the day before the payment date.
                           const { vencimento } = paymentSchedule(c.due_date);
                           if (!vencimento) return <span className="text-[var(--muted)]">—</span>;
                           const overdue = vencimento < todayYmd;
@@ -882,8 +827,8 @@ export function ChargesDashboard({
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-xs text-[var(--ink)]">
                         {(() => {
-                          // Payment date = the API date snapped to a Tue/Fri. The raw date
-                          // that came from the API is shown beneath, flagged when adjusted.
+                          // Payment date = the API date snapped to a Tue/Fri; the raw API
+                          // date is shown beneath, flagged when it was adjusted.
                           const s = paymentSchedule(c.due_date);
                           if (!s.paymentDate) return <span className="text-[var(--muted)]">—</span>;
                           return (
@@ -907,12 +852,9 @@ export function ChargesDashboard({
                         })()}
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-sm font-bold">{fmtMoney(Number(c.amount), c.currency)}</td>
-                      <td className="px-5 py-3.5">
-                        {c.status === "reclassifying" ? (
-                          <div className="flex justify-end">
-                            <ChargeStatusBadge status="reclassifying" />
-                          </div>
-                        ) : (
+                      <td className="px-2 py-3.5"><ChargeStatusBadge status={c.status} /></td>
+                      <td className="px-5 py-3.5 text-right">
+                        {c.status === "pending" ? (
                           <div className="flex flex-wrap justify-end gap-1.5">
                             <button
                               onClick={() => void approve(c)}
@@ -939,6 +881,12 @@ export function ChargesDashboard({
                               </button>
                             )}
                           </div>
+                        ) : c.status === "reclassifying" ? (
+                          <span className="v-tabular text-[11px] text-[var(--muted)]">em reclassificação</span>
+                        ) : (
+                          <span className="v-tabular text-[11px] text-[var(--muted)]" title={c.decided_by_email ?? undefined}>
+                            {c.decided_at ? brtDateTimeBR(c.decided_at) : "—"}
+                          </span>
                         )}
                       </td>
                     </tr>
@@ -947,64 +895,16 @@ export function ChargesDashboard({
               </table>
             </div>
             <Pagination
-              page={pendingPager.page}
-              pageCount={pendingPager.pageCount}
-              onPage={pendingPager.setPage}
-              total={pendingPager.total}
-              start={pendingPager.start}
-              end={pendingPager.end}
+              page={pager.page}
+              pageCount={pager.pageCount}
+              onPage={pager.setPage}
+              total={pager.total}
+              start={pager.start}
+              end={pager.end}
             />
           </>
         )}
       </div>
-
-      {/* Decided history */}
-      {decided.length > 0 && (
-        <div className="reveal mt-6 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
-          <div className="border-b border-[var(--line)] px-5 py-3.5">
-            <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
-              Decididas
-            </h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full" aria-label="Cobranças decididas">
-              <tbody>
-                {decidedPager.pageItems.map((c) => (
-                  <tr key={c.id} className="border-b border-[var(--line)] last:border-b-0">
-                    <td className="w-[80px] px-5 py-3 v-tabular text-xs font-semibold text-[var(--accent)]">{c.display_id}</td>
-                    <td className="hidden px-2 py-3 v-tabular text-[11px] text-[var(--muted)] sm:table-cell">
-                      {c.request_date ? brtDateTimeBR(c.request_date) : "—"}
-                    </td>
-                    <td className="px-2 py-3">
-                      <div className="text-sm">{c.supplier_name}</div>
-                      <div className="text-[11px] text-[var(--faint)]">
-                        {c.cost_centers ? `${c.cost_centers.code} — ${c.cost_centers.name}` : c.cost_center_id}
-                      </div>
-                      {c.decided_at && (
-                        <div className="mt-0.5 v-tabular text-[11px] text-[var(--muted)]">
-                          {c.status === "approved" ? "Aprovada" : "Recusada"} em {brtDateTimeBR(c.decided_at)}
-                        </div>
-                      )}
-                    </td>
-                    <td className="hidden px-2 py-3 text-right v-tabular text-xs text-[var(--muted)] sm:table-cell">
-                      {fmtMoney(Number(c.amount), c.currency)}
-                    </td>
-                    <td className="px-5 py-3 text-right"><ChargeStatusBadge status={c.status} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pagination
-            page={decidedPager.page}
-            pageCount={decidedPager.pageCount}
-            onPage={decidedPager.setPage}
-            total={decidedPager.total}
-            start={decidedPager.start}
-            end={decidedPager.end}
-          />
-        </div>
-      )}
 
       {feriasOpen && (
         <FeriasDialog supabaseToken={supabaseToken} email={email} onClose={() => setFeriasOpen(false)} />

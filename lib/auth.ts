@@ -75,8 +75,11 @@ export const getSessionContext = cache(async (): Promise<SessionContext | null> 
     avatarUrl: session.user.image ?? null,
     isHead: headCenterIds.length > 0,
     headCenterIds,
-    // Only real heads (not pure substitutes) may hand their approvals to someone else.
-    canDelegate: ownHeadCenterIds.length > 0,
+    // Heads (explicit) and admins see the delegate button. For an admin the flow
+    // is identical but hands off nothing — an admin holds no explicit
+    // cost_center_heads rows, so is_delegate_of() grants the substitute no CC
+    // (visually indistinguishable, zero effect). RH viewer never delegates.
+    canDelegate: !isRhViewer && (isAdmin || ownHeadCenterIds.length > 0),
     roles,
     // The `admin` role always grants full-app access; the env allowlist is an
     // extra escape hatch for non-admin full-app users. One source of truth for
