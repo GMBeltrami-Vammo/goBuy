@@ -10,8 +10,9 @@ export const VAMMO_DOMAIN = "@vammo.com";
 export const isVammoEmail = (email: string | undefined | null): email is string =>
   !!email && email.toLowerCase().endsWith(VAMMO_DOMAIN);
 
-// Server-only allowlist of emails that may see the full (non-demo) app. Everyone
-// else who is a cost-center head sees only the /cobrancas approval demo.
+// Server-only allowlist of emails that may see the full (non-demo) app, on top
+// of anyone holding the `admin` role (see isFullAppAdmin below). Everyone else
+// who is a cost-center head sees only the /cobrancas approval demo.
 const FULL_APP_ADMINS = (process.env.FULL_APP_ADMINS ?? "")
   .split(",")
   .map((s) => s.trim().toLowerCase())
@@ -64,7 +65,10 @@ export const getSessionContext = cache(async (): Promise<SessionContext | null> 
     // Only real heads (not pure substitutes) may hand their approvals to someone else.
     canDelegate: ownHeadCenterIds.length > 0,
     roles,
-    isFullAppAdmin: FULL_APP_ADMINS.includes(email),
+    // The `admin` role always grants full-app access; the env allowlist is an
+    // extra escape hatch for non-admin full-app users. One source of truth for
+    // "admin" — no separate list to keep in sync.
+    isFullAppAdmin: FULL_APP_ADMINS.includes(email) || roles.includes("admin"),
     isReclassifier: roles.includes("reclassifier"),
     isRhViewer,
     supabaseToken: session.supabaseToken ?? "",  // "" → unauthenticated Supabase client; RLS blocks all reads
