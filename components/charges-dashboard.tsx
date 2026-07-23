@@ -868,37 +868,36 @@ export function ChargesDashboard({
                         {c.pix_key && <div className="mt-0.5 text-[11px] text-[var(--muted)]">Pix: {c.pix_key}</div>}
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-xs">
-                        {c.due_date ? (
-                          <>
-                            {/* Nominal Vencimento — kept on record, red-struck once overdue. */}
-                            <div
-                              className={
-                                c.due_date < todayYmd
-                                  ? "text-[var(--rejected)] line-through"
-                                  : "text-[var(--muted)]"
-                              }
-                            >
-                              {formatDateOnlyBR(c.due_date)}
-                            </div>
-                            {/* Nova data limite: last day to approve and still hit the
-                                projected payment — the day before Data de pagamento.
-                                Hidden when it equals the Vencimento (no extra grace). */}
-                            {(() => {
-                              const novaLimite = dayBefore(paymentSchedule(todayYmd, c.due_date).newPaymentDate);
-                              if (novaLimite === c.due_date) return null;
-                              return (
+                        {(() => {
+                          // "Aprovar até" = the day before the projected payment: the last
+                          // day to approve and still hit that Tue/Fri payment. Payment is
+                          // computed from today (if approved now), so this is always today
+                          // or later. The raw Vencimento from the source is shown below for
+                          // reference (red-struck once it has passed).
+                          const aprovarAte = dayBefore(paymentSchedule(todayYmd, c.due_date).newPaymentDate);
+                          return (
+                            <>
+                              <div
+                                className="text-[var(--ink)]"
+                                title="Último dia para aprovar e manter o pagamento na data prevista."
+                              >
+                                {formatDateOnlyBR(aprovarAte)}
+                              </div>
+                              {c.due_date && (
                                 <div
-                                  className="mt-0.5 text-[11px] text-[var(--muted)]"
-                                  title="Última data para aprovar e manter o pagamento na data prevista."
+                                  className={`mt-0.5 text-[11px] ${
+                                    c.due_date < todayYmd
+                                      ? "text-[var(--rejected)] line-through"
+                                      : "text-[var(--faint)]"
+                                  }`}
+                                  title="Vencimento informado na origem."
                                 >
-                                  Nova data limite {formatDateOnlyBR(novaLimite)}
+                                  Venc. {formatDateOnlyBR(c.due_date)}
                                 </div>
-                              );
-                            })()}
-                          </>
-                        ) : (
-                          <span className="text-[var(--muted)]">—</span>
-                        )}
+                              )}
+                            </>
+                          );
+                        })()}
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-xs text-[var(--ink)]">
                         {/* Payment date if approved now: max(pay-day after Vencimento, pay-day after today). */}
