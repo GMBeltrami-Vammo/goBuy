@@ -528,14 +528,6 @@ export function HeadDashboard({
             <SkeletonRow />
             <SkeletonRow />
           </div>
-        ) : pendingBase.length === 0 ? (
-          <p className="px-5 py-12 text-center text-sm text-[var(--faint)]">
-            Nenhuma solicitação pendente por aqui.
-          </p>
-        ) : pendingRows.length === 0 ? (
-          <p className="px-5 py-12 text-center text-sm text-[var(--faint)]">
-            Nenhuma solicitação com os filtros atuais.
-          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full" aria-label="Solicitações aguardando aprovação">
@@ -563,7 +555,14 @@ export function HeadDashboard({
                 </tr>
               </thead>
               <tbody>
-                {pendingPager.pageItems.map((r) => (
+                {pendingRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-5 py-12 text-center text-sm text-[var(--faint)]">
+                      Nenhuma solicitação {anyPendingFilter ? "com os filtros atuais" : "pendente por aqui"}.
+                    </td>
+                  </tr>
+                ) : (
+                  pendingPager.pageItems.map((r) => (
                   <tr
                     key={r.id}
                     onClick={() => setOpenRequest(r)}
@@ -603,19 +602,22 @@ export function HeadDashboard({
                       Revisar →
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         )}
-        <Pagination
-          page={pendingPager.page}
-          pageCount={pendingPager.pageCount}
-          onPage={pendingPager.setPage}
-          total={pendingPager.total}
-          start={pendingPager.start}
-          end={pendingPager.end}
-        />
+        {pendingRows.length > 0 && (
+          <Pagination
+            page={pendingPager.page}
+            pageCount={pendingPager.pageCount}
+            onPage={pendingPager.setPage}
+            total={pendingPager.total}
+            start={pendingPager.start}
+            end={pendingPager.end}
+          />
+        )}
       </div>
 
       {/* Recent decisions — per-column value filters + sort */}
@@ -639,42 +641,44 @@ export function HeadDashboard({
               </button>
             )}
           </div>
-          {recentRows.length === 0 ? (
-            <p className="px-5 py-12 text-center text-sm text-[var(--faint)]">
-              Nenhuma decisão com os filtros atuais.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full" aria-label="Decisões recentes">
-                <thead className="hidden sm:table-header-group">
-                  <tr className="border-b border-[var(--line)]">
-                    <FilterHeader label="ID" field="id" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} width="90px" className="pl-5" />
-                    <FilterHeader
-                      label="Fornecedor" field="supplier" active={recentSortField} dir={recentSortDir} setSort={setRecentSort}
-                      options={recentOptions.supplier} excluded={recentExcluded.supplier}
-                      onToggle={(v) => recFilter.toggleVal("supplier", v)} onSelectAll={() => recFilter.selectAllVals("supplier")} onClearAll={() => recFilter.clearVals("supplier", recentOptions.supplier)}
-                    />
-                    <FilterHeader
-                      label="Departamento" field="dept" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} width="180px"
-                      options={recentOptions.dept} excluded={recentExcluded.dept}
-                      onToggle={(v) => recFilter.toggleVal("dept", v)} onSelectAll={() => recFilter.selectAllVals("dept")} onClearAll={() => recFilter.clearVals("dept", recentOptions.dept)}
-                    />
-                    <FilterHeader
-                      label="Tipo" field="type" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} width="120px"
-                      options={recentOptions.type} excluded={recentExcluded.type}
-                      onToggle={(v) => recFilter.toggleVal("type", v)} onSelectAll={() => recFilter.selectAllVals("type")} onClearAll={() => recFilter.clearVals("type", recentOptions.type)}
-                    />
-                    <FilterHeader label="Valor" field="amount" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} align="right" width="110px" />
-                    <FilterHeader label="Decidida em" field="decided" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} align="right" width="120px" />
-                    <FilterHeader
-                      label="Status" field="status" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} align="right" width="130px" className="pr-5"
-                      options={recentOptions.status} excluded={recentExcluded.status}
-                      onToggle={(v) => recFilter.toggleVal("status", v)} onSelectAll={() => recFilter.selectAllVals("status")} onClearAll={() => recFilter.clearVals("status", recentOptions.status)}
-                    />
+          <div className="overflow-x-auto">
+            <table className="w-full" aria-label="Decisões recentes">
+              <thead className="hidden sm:table-header-group">
+                <tr className="border-b border-[var(--line)]">
+                  <FilterHeader label="ID" field="id" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} width="90px" className="pl-5" />
+                  <FilterHeader
+                    label="Fornecedor" field="supplier" active={recentSortField} dir={recentSortDir} setSort={setRecentSort}
+                    options={recentOptions.supplier} excluded={recentExcluded.supplier}
+                    onToggle={(v) => recFilter.toggleVal("supplier", v)} onSelectAll={() => recFilter.selectAllVals("supplier")} onClearAll={() => recFilter.clearVals("supplier", recentOptions.supplier)}
+                  />
+                  <FilterHeader
+                    label="Departamento" field="dept" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} width="180px"
+                    options={recentOptions.dept} excluded={recentExcluded.dept}
+                    onToggle={(v) => recFilter.toggleVal("dept", v)} onSelectAll={() => recFilter.selectAllVals("dept")} onClearAll={() => recFilter.clearVals("dept", recentOptions.dept)}
+                  />
+                  <FilterHeader
+                    label="Tipo" field="type" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} width="120px"
+                    options={recentOptions.type} excluded={recentExcluded.type}
+                    onToggle={(v) => recFilter.toggleVal("type", v)} onSelectAll={() => recFilter.selectAllVals("type")} onClearAll={() => recFilter.clearVals("type", recentOptions.type)}
+                  />
+                  <FilterHeader label="Valor" field="amount" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} align="right" width="110px" />
+                  <FilterHeader label="Decidida em" field="decided" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} align="right" width="120px" />
+                  <FilterHeader
+                    label="Status" field="status" active={recentSortField} dir={recentSortDir} setSort={setRecentSort} align="right" width="130px" className="pr-5"
+                    options={recentOptions.status} excluded={recentExcluded.status}
+                    onToggle={(v) => recFilter.toggleVal("status", v)} onSelectAll={() => recFilter.selectAllVals("status")} onClearAll={() => recFilter.clearVals("status", recentOptions.status)}
+                  />
+                </tr>
+              </thead>
+              <tbody>
+                {recentRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-5 py-12 text-center text-sm text-[var(--faint)]">
+                      Nenhuma decisão com os filtros atuais.
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {recentPager.pageItems.map((r) => {
+                ) : (
+                  recentPager.pageItems.map((r) => {
                     const decidedOn = r.decided_at ?? r.cancelled_at;
                     return (
                       <tr
@@ -717,19 +721,21 @@ export function HeadDashboard({
                         </td>
                       </tr>
                     );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+          {recentRows.length > 0 && (
+            <Pagination
+              page={recentPager.page}
+              pageCount={recentPager.pageCount}
+              onPage={recentPager.setPage}
+              total={recentPager.total}
+              start={recentPager.start}
+              end={recentPager.end}
+            />
           )}
-          <Pagination
-            page={recentPager.page}
-            pageCount={recentPager.pageCount}
-            onPage={recentPager.setPage}
-            total={recentPager.total}
-            start={recentPager.start}
-            end={recentPager.end}
-          />
         </div>
       )}
 

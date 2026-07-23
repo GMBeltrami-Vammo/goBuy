@@ -535,10 +535,6 @@ export function FinanceDashboard({
             <FinanceSkeletonRow />
             <FinanceSkeletonRow />
           </div>
-        ) : filtered.length === 0 ? (
-          <p className="px-5 py-12 text-center text-sm text-[var(--faint)]">
-            Nenhuma solicitação {anyFilter ? "com os filtros atuais" : "encontrada"}.
-          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full" aria-label="Todas as solicitações">
@@ -567,7 +563,14 @@ export function FinanceDashboard({
                 </tr>
               </thead>
               <tbody>
-                {pageItems.map((r) => (
+                {filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-5 py-12 text-center text-sm text-[var(--faint)]">
+                      Nenhuma solicitação {anyFilter ? "com os filtros atuais" : "encontrada"}.
+                    </td>
+                  </tr>
+                ) : (
+                  pageItems.map((r) => (
                   <tr
                     key={r.id}
                     onClick={() => setOpenRequest(r)}
@@ -615,19 +618,22 @@ export function FinanceDashboard({
                       <StatusBadge status={r.status} />
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         )}
-        <Pagination
-          page={page}
-          pageCount={pageCount}
-          onPage={setPage}
-          total={total}
-          start={start}
-          end={end}
-        />
+        {filtered.length > 0 && (
+          <Pagination
+            page={page}
+            pageCount={pageCount}
+            onPage={setPage}
+            total={total}
+            start={start}
+            end={end}
+          />
+        )}
       </div>
 
       {payTarget && (

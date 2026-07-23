@@ -349,10 +349,6 @@ export function RequestsDashboard({
               Criar a primeira →
             </button>
           </div>
-        ) : rows.length === 0 ? (
-          <p className="px-5 py-14 text-center text-sm text-[var(--faint)]">
-            Nenhuma solicitação corresponde aos filtros.
-          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full" aria-label="Minhas solicitações de compra">
@@ -380,7 +376,14 @@ export function RequestsDashboard({
                 </tr>
               </thead>
               <tbody>
-                {pageItems.map((r) => {
+                {rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-5 py-12 text-center text-sm text-[var(--faint)]">
+                      Nenhuma solicitação corresponde aos filtros.
+                    </td>
+                  </tr>
+                ) : (
+                  pageItems.map((r) => {
                   const heads = (r.cost_centers?.cost_center_heads ?? [])
                     .map((h) => h.head_name ?? h.head_email.split("@")[0])
                     .join(", ");
@@ -427,19 +430,22 @@ export function RequestsDashboard({
                       </td>
                     </tr>
                   );
-                })}
+                })
+                )}
               </tbody>
             </table>
           </div>
         )}
-        <Pagination
-          page={page}
-          pageCount={pageCount}
-          onPage={setPage}
-          total={total}
-          start={start}
-          end={end}
-        />
+        {rows.length > 0 && (
+          <Pagination
+            page={page}
+            pageCount={pageCount}
+            onPage={setPage}
+            total={total}
+            start={start}
+            end={end}
+          />
+        )}
       </div>
 
       {showNew && (
