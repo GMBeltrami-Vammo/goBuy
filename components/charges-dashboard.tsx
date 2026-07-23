@@ -1,7 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { ChargeDetailModal } from "@/components/charge-detail-modal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -767,10 +768,6 @@ export function ChargesDashboard({
             <SkeletonRow />
             <SkeletonRow />
           </div>
-        ) : rows.length === 0 ? (
-          <p className="px-5 py-12 text-center text-sm text-[var(--faint)]">
-            Nenhuma cobrança {anyTableFilter ? "com os filtros atuais" : "por aqui"}.
-          </p>
         ) : (
           <>
             <div className="overflow-x-auto">
@@ -809,7 +806,14 @@ export function ChargesDashboard({
                   </tr>
                 </thead>
                 <tbody>
-                  {pager.pageItems.map((c) => (
+                  {rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="px-5 py-12 text-center text-sm text-[var(--faint)]">
+                        Nenhuma cobrança {anyTableFilter ? "com os filtros atuais" : "por aqui"}.
+                      </td>
+                    </tr>
+                  ) : (
+                    pager.pageItems.map((c) => (
                     <tr key={c.id} className="border-b border-[var(--line)] last:border-b-0 align-top">
                       <td className="px-5 py-3.5 v-tabular text-xs font-semibold text-[var(--accent)]">{c.display_id}</td>
                       <td className="px-2 py-3.5 v-tabular text-[11px] text-[var(--muted)]">
@@ -916,18 +920,21 @@ export function ChargesDashboard({
                         )}
                       </td>
                     </tr>
-                  ))}
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
-            <Pagination
-              page={pager.page}
-              pageCount={pager.pageCount}
-              onPage={pager.setPage}
-              total={pager.total}
-              start={pager.start}
-              end={pager.end}
-            />
+            {rows.length > 0 && (
+              <Pagination
+                page={pager.page}
+                pageCount={pager.pageCount}
+                onPage={pager.setPage}
+                total={pager.total}
+                start={pager.start}
+                end={pager.end}
+              />
+            )}
           </>
         )}
       </div>
@@ -1005,6 +1012,8 @@ export function ChargesDashboard({
   );
 }
 
+// Budget-graph CC scope. Uses a portal dropdown (fixed positioning) so the panel
+// is never clipped by an ancestor and its list scrolls reliably.
 function CcMultiSelect({
   centers,
   selected,
@@ -1016,41 +1025,119 @@ function CcMultiSelect({
   onToggle: (id: number) => void;
   onClear: () => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [pos, setPos] = useState<{ top: number; left: number; maxH: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const W = 320;
+
+  const place = () => {
+    const b = btnRef.current?.getBoundingClientRect();
+    if (!b) return;
+    const left = Math.max(8, Math.min(b.left, window.innerWidth - W - 8));
+    const spaceBelow = window.innerHeight - b.bottom - 16;
+    setPos({ top: Math.round(b.bottom + 4), left: Math.round(left), maxH: Math.max(140, Math.min(340, spaceBelow - 72)) });
+  };
+  useLayoutEffect(() => {
+    if (open) place();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (popRef.current?.contains(e.target as Node) || btnRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const onReflow = (e?: Event) => {
+      if (e && e.target instanceof Node && popRef.current?.contains(e.target)) return;
+      place();
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onReflow, true);
+    window.addEventListener("resize", onReflow);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onReflow, true);
+      window.removeEventListener("resize", onReflow);
+    };
+  }, [open]);
+
   if (centers.length === 0) return null;
   const label = selected.size === 0 ? "todos" : `${selected.size} de ${centers.length}`;
+  const shown = centers.filter((cc) => `${cc.code} ${cc.name}`.toLowerCase().includes(q.trim().toLowerCase()));
+
   return (
-    <details className="relative">
-      <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg border border-[var(--line-strong)] bg-[var(--bg)] px-3 py-1.5 text-sm font-medium text-[var(--ink)] transition hover:border-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`flex items-center gap-1 rounded-lg border bg-[var(--bg)] px-3 py-1.5 text-sm font-medium transition hover:border-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
+          selected.size > 0 ? "border-[var(--accent)] text-[var(--accent)]" : "border-[var(--line-strong)] text-[var(--ink)]"
+        }`}
+      >
         Centros: {label} <span className="text-[var(--faint)]">▾</span>
-      </summary>
-      <div className="absolute z-20 mt-1 max-h-72 w-80 overflow-y-auto rounded-lg border border-[var(--line)] bg-[var(--surface)] p-2 shadow-[var(--shadow)]">
-        <div className="flex items-center justify-between px-1 pb-1">
-          <span className="v-tabular text-[10px] uppercase tracking-widest text-[var(--faint)]">
-            {centers.length} com cobranças
-          </span>
-          {selected.size > 0 && (
-            <button onClick={onClear} className="text-[11px] font-semibold text-[var(--accent)] hover:underline">
-              Limpar
-            </button>
-          )}
-        </div>
-        {centers.map((cc) => (
-          <label
-            key={cc.id}
-            className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-[var(--surface-2)]"
+      </button>
+      {open &&
+        pos &&
+        createPortal(
+          <div
+            ref={popRef}
+            role="menu"
+            style={{ position: "fixed", top: pos.top, left: pos.left, width: W }}
+            className="z-[70] rounded-lg border border-[var(--line)] bg-[var(--surface)] p-2 shadow-[var(--shadow)]"
           >
+            <div className="mb-1 flex items-center justify-between px-1">
+              <span className="v-tabular text-[10px] uppercase tracking-widest text-[var(--faint)]">
+                {centers.length} com cobranças
+              </span>
+              {selected.size > 0 && (
+                <button onClick={onClear} className="text-[11px] font-semibold text-[var(--accent)] hover:underline">
+                  Limpar
+                </button>
+              )}
+            </div>
             <input
-              type="checkbox"
-              checked={selected.has(cc.id)}
-              onChange={() => onToggle(cc.id)}
-              className="h-4 w-4 accent-[var(--accent)]"
+              type="search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Buscar centro…"
+              aria-label="Buscar centro de custo"
+              className="mb-1 w-full rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2.5 py-1 text-xs text-[var(--ink)] outline-none transition placeholder:text-[var(--faint)] focus:border-[var(--accent)]"
             />
-            <span className="v-tabular text-xs font-semibold">{cc.code}</span>
-            <span className="min-w-0 flex-1 truncate text-xs text-[var(--muted)]" title={cc.name}>{cc.name}</span>
-          </label>
-        ))}
-      </div>
-    </details>
+            <div className="overflow-y-auto" style={{ maxHeight: pos.maxH }}>
+              {shown.length === 0 ? (
+                <p className="px-1.5 py-2 text-xs text-[var(--faint)]">Nenhum centro.</p>
+              ) : (
+                shown.map((cc) => (
+                  <label
+                    key={cc.id}
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-[var(--surface-2)]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.has(cc.id)}
+                      onChange={() => onToggle(cc.id)}
+                      className="h-4 w-4 accent-[var(--accent)]"
+                    />
+                    <span className="v-tabular text-xs font-semibold">{cc.code}</span>
+                    <span className="min-w-0 flex-1 truncate text-xs text-[var(--muted)]" title={cc.name}>{cc.name}</span>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 

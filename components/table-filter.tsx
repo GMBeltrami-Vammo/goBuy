@@ -56,7 +56,7 @@ export function FilterHeader<F extends string>({
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; maxH: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
 
@@ -69,7 +69,10 @@ export function FilterHeader<F extends string>({
     if (!b) return;
     let left = align === "right" ? b.right - POP_WIDTH : b.left;
     left = Math.max(8, Math.min(left, window.innerWidth - POP_WIDTH - 8));
-    setPos({ top: Math.round(b.bottom + 4), left: Math.round(left) });
+    // Cap the value list so the dropdown never runs past the viewport bottom.
+    const spaceBelow = window.innerHeight - b.bottom - 16;
+    const maxH = Math.max(120, Math.min(300, spaceBelow - 128));
+    setPos({ top: Math.round(b.bottom + 4), left: Math.round(left), maxH });
   };
 
   useLayoutEffect(() => {
@@ -86,7 +89,14 @@ export function FilterHeader<F extends string>({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
-    const onReflow = () => setOpen(false);
+    const onReflow = (e?: Event) => {
+      // Ignore scrolls originating INSIDE the dropdown (its own value list) —
+      // reposition only when the page/table behind it scrolls. (This is the fix
+      // for "can't scroll the list": the capture-phase handler used to close on
+      // every scroll, including the list's own.)
+      if (e && e.target instanceof Node && popRef.current?.contains(e.target)) return;
+      place();
+    };
     document.addEventListener("mousedown", onDoc);
     document.addEventListener("keydown", onKey);
     window.addEventListener("scroll", onReflow, true);
@@ -183,7 +193,7 @@ export function FilterHeader<F extends string>({
                   />
                   <span aria-hidden className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[var(--faint)]">⌕</span>
                 </div>
-                <div className="max-h-56 overflow-y-auto">
+                <div className="overflow-y-auto" style={{ maxHeight: pos.maxH }}>
                   {shown.length === 0 ? (
                     <p className="px-1.5 py-2 text-xs text-[var(--faint)]">Nenhum valor.</p>
                   ) : (
