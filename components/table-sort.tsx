@@ -19,11 +19,15 @@ export function useSort<F extends string>(initialField: F, initialDir: SortDir =
       setDir("asc");
     }
   };
+  const setSort = (f: F, d: SortDir) => {
+    setField(f);
+    setDir(d);
+  };
   const reset = () => {
     setField(initialField);
     setDir(initialDir);
   };
-  return { field, dir, onSort, reset };
+  return { field, dir, onSort, setSort, reset };
 }
 
 /**

@@ -8,7 +8,8 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { FeriasDialog } from "@/components/ferias-dialog";
 import { Pagination, usePagination } from "@/components/pagination";
 import { RateioLine } from "@/components/rateio-line";
-import { SortHeader, useSort } from "@/components/table-sort";
+import { FilterHeader, type FilterOption } from "@/components/table-filter";
+import { useSort } from "@/components/table-sort";
 import { chargeContributions } from "@/lib/rateio";
 import { brtDateTimeBR, brtYmd, formatBRL, formatDateOnlyBR } from "@/lib/format";
 import { paymentSchedule } from "@/lib/payment-schedule";
@@ -46,14 +47,19 @@ const CHARGE_STATUS_TONE: Record<ChargeStatus, string> = {
 };
 // Sort rank so the Status column orders sensibly (actionable first).
 const STATUS_RANK: Record<ChargeStatus, number> = { pending: 0, reclassifying: 1, approved: 2, denied: 3 };
-// Status filter chips + the default view (the decision queue).
+// Status values, in display order (for the Status column's value filter).
 const STATUS_OPTIONS: { value: ChargeStatus; label: string }[] = [
   { value: "pending", label: "Pendente" },
   { value: "reclassifying", label: "Em mudança de CC" },
   { value: "approved", label: "Aprovada" },
   { value: "denied", label: "Recusada" },
 ];
-const DEFAULT_STATUS: ChargeStatus[] = ["pending", "reclassifying"];
+// Default view = the decision queue: Status column starts with approved+denied
+// UNCHECKED (excluded), so only Pendente + Em mudança de CC show.
+const DEFAULT_EXCLUDED_STATUS: ChargeStatus[] = ["approved", "denied"];
+const makeDefaultExcluded = (): Record<string, Set<string>> => ({
+  status: new Set<string>(DEFAULT_EXCLUDED_STATUS),
+});
 
 function ChargeStatusBadge({ status }: { status: ChargeStatus }) {
   const tone = CHARGE_STATUS_TONE[status];
@@ -81,9 +87,6 @@ function fmtMoney(n: number, currency: string): string {
 // ─── Sorting & search ─────────────────────────────────────────────────────────
 type SortField = "id" | "request" | "supplier" | "cc" | "due" | "payment" | "amount" | "status";
 
-// The value a charge sorts on for a given field. Dates are yyyy-mm-dd (or ISO for
-// request_date) so lexicographic order is chronological; amount/status are numeric.
-// "" marks a missing key so it can be pushed to the end regardless of direction.
 function chargeSortKey(c: IncomingCharge, field: SortField): string | number {
   switch (field) {
     case "id":
@@ -95,7 +98,6 @@ function chargeSortKey(c: IncomingCharge, field: SortField): string | number {
     case "cc":
       return c.cost_centers?.code ?? "";
     case "due":
-      // Vencimento = day before the payment date (derived from the API date).
       return paymentSchedule(c.due_date).vencimento ?? "";
     case "payment":
       return paymentSchedule(c.due_date).paymentDate ?? "";
@@ -109,7 +111,6 @@ function chargeSortKey(c: IncomingCharge, field: SortField): string | number {
 function compareCharges(a: IncomingCharge, b: IncomingCharge, field: SortField, dir: "asc" | "desc"): number {
   const ka = chargeSortKey(a, field);
   const kb = chargeSortKey(b, field);
-  // Missing keys ("") always sort last, in both directions.
   const aEmpty = ka === "";
   const bEmpty = kb === "";
   if (aEmpty && bEmpty) return 0;
@@ -155,11 +156,13 @@ export function ChargesDashboard({
   const [denyReason, setDenyReason] = useState("");
   const [viewMode, setViewMode] = useState<"pizza" | "barra">("pizza");
   const [detailCc, setDetailCc] = useState<CostCenter | null>(null);
+  // Budget-graph CC scope (separate from the table's per-column filters).
   const [selectedCcs, setSelectedCcs] = useState<Set<number>>(new Set());
-  // Table controls: global search, Status filter (chips), column sort.
+  // Table controls: global search + per-column value filters (excluded = unchecked
+  // values) + column sort.
   const [search, setSearch] = useState("");
-  const [statusSel, setStatusSel] = useState<Set<ChargeStatus>>(new Set(DEFAULT_STATUS));
-  const { field: sortField, dir: sortDir, onSort } = useSort<SortField>("due", "asc");
+  const [excluded, setExcluded] = useState<Record<string, Set<string>>>(makeDefaultExcluded);
+  const { field: sortField, dir: sortDir, setSort } = useSort<SortField>("due", "asc");
   // Per-head Slack notification preference (null = still loading; default off).
   const [slackOn, setSlackOn] = useState<boolean | null>(null);
   const [slackBusy, setSlackBusy] = useState(false);
@@ -209,15 +212,13 @@ export function ChargesDashboard({
     void load();
   }, [load]);
 
-  // The CC multi-select scopes BOTH the graphs and the table. Empty = all.
+  // The budget CC multi-select scopes the graphs (not the table). Empty = all.
   const isVisible = (id: number) => selectedCcs.size === 0 || selectedCcs.has(id);
   const selKey = [...selectedCcs].sort((a, b) => a - b).join(",");
 
   // ─── Budget aggregation (committed = approved + pending BRL, by due date) ──────
   const ym = (d: string) => d.slice(0, 7); // "yyyy-mm"
 
-  // Map CC code → id so rateio segments (which carry codes) attribute to the
-  // right center. Only the viewer's CCs are mappable (RLS scopes the rest).
   const codeToId = useMemo(() => new Map(centers.map((c) => [c.code, c.id])), [centers]);
 
   const committedByCenter = useMemo(() => {
@@ -275,7 +276,6 @@ export function ChargesDashboard({
     return { budget, committed, pending, available: Math.max(0, budget - committed) };
   }, [centers, budgetByCenter, committedByCenter, pendingAmountByCenter, selKey]);
 
-  // Graphs show CCs that are visible (per the filter) AND have budget or activity.
   const relevantCenters = useMemo(
     () =>
       centers.filter(
@@ -294,7 +294,6 @@ export function ChargesDashboard({
     [relevantCenters, committedByCenter, budgetByCenter],
   );
 
-  // CCs that actually have charges — the list offered in the multi-select filter.
   const filterableCenters = useMemo(() => {
     const withCharges = new Set((charges ?? []).map((c) => c.cost_center_id));
     return centers.filter((c) => withCharges.has(c.id)).sort((a, b) => a.code.localeCompare(b.code));
@@ -311,32 +310,62 @@ export function ChargesDashboard({
     new Date(`${iso}T12:00:00`).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
   const isMockOrEmpty = hasCenters && budgets.length === 0;
 
-  // ─── Single charge table (all statuses; scoped by CC, Status filter, search) ──
+  // ─── Single charge table — per-column value filters + sort + global search ────
   const searchQ = search.trim().toLowerCase();
-  const statusSelKey = [...statusSel].sort().join(",");
-  const isDefaultStatus =
-    statusSel.size === DEFAULT_STATUS.length && DEFAULT_STATUS.every((s) => statusSel.has(s));
-  const anyTableFilter = selectedCcs.size > 0 || !!searchQ || !isDefaultStatus;
+
+  // Distinct values present, for each filterable column's dropdown.
+  const filterOptions = useMemo(() => {
+    const supplier = new Map<string, string>();
+    const cc = new Map<string, string>();
+    const venc = new Map<string, string>();
+    const payment = new Map<string, string>();
+    for (const c of charges ?? []) {
+      supplier.set(c.supplier_name ?? "", c.supplier_name ?? "");
+      const code = c.cost_centers?.code ?? "";
+      cc.set(code, c.cost_centers ? `${c.cost_centers.code} — ${c.cost_centers.name}` : code);
+      const s = paymentSchedule(c.due_date);
+      venc.set(s.vencimento ?? "", s.vencimento ? formatDateOnlyBR(s.vencimento) : "");
+      payment.set(s.paymentDate ?? "", s.paymentDate ? formatDateOnlyBR(s.paymentDate) : "");
+    }
+    // Blanks last; otherwise text by label, dates by value (chronological).
+    const byLabel = (m: Map<string, string>): FilterOption[] =>
+      [...m.entries()]
+        .map(([value, label]) => ({ value, label }))
+        .sort((a, b) => (a.value === "" ? 1 : b.value === "" ? -1 : a.label.localeCompare(b.label)));
+    const byDate = (m: Map<string, string>): FilterOption[] =>
+      [...m.entries()]
+        .map(([value, label]) => ({ value, label }))
+        .sort((a, b) => (a.value === "" ? 1 : b.value === "" ? -1 : a.value.localeCompare(b.value)));
+    const status: FilterOption[] = STATUS_OPTIONS.filter((o) =>
+      (charges ?? []).some((c) => c.status === o.value),
+    ).map((o) => ({ value: o.value, label: o.label }));
+    return { supplier: byLabel(supplier), cc: byLabel(cc), venc: byDate(venc), payment: byDate(payment), status };
+  }, [charges]);
 
   const rows = useMemo(() => {
-    const list = (charges ?? []).filter(
-      (c) =>
-        statusSel.has(c.status) &&
-        isVisible(c.cost_center_id) &&
-        (searchQ === "" || matchesChargeSearch(c, searchQ)),
-    );
+    const list = (charges ?? []).filter((c) => {
+      if (searchQ && !matchesChargeSearch(c, searchQ)) return false;
+      if (excluded.supplier?.has(c.supplier_name ?? "")) return false;
+      if (excluded.cc?.has(c.cost_centers?.code ?? "")) return false;
+      const s = paymentSchedule(c.due_date);
+      if (excluded.venc?.has(s.vencimento ?? "")) return false;
+      if (excluded.payment?.has(s.paymentDate ?? "")) return false;
+      if (excluded.status?.has(c.status)) return false;
+      return true;
+    });
     return [...list].sort((a, b) => compareCharges(a, b, sortField, sortDir));
-  }, [charges, selKey, statusSelKey, searchQ, sortField, sortDir]);
+  }, [charges, excluded, searchQ, sortField, sortDir]);
 
-  const pager = usePagination(rows, `charges|${selKey}|${statusSelKey}|${searchQ}|${sortField}|${sortDir}`);
+  const excludedKey = Object.entries(excluded)
+    .map(([k, s]) => `${k}:${[...s].sort().join("|")}`)
+    .sort()
+    .join(";");
+  const pager = usePagination(rows, `charges|${excludedKey}|${searchQ}|${sortField}|${sortDir}`);
 
   // Actionable backlog (pending + in reclassification), for the jump button.
   const actionableCount = useMemo(
-    () =>
-      (charges ?? []).filter(
-        (c) => (c.status === "pending" || c.status === "reclassifying") && isVisible(c.cost_center_id),
-      ).length,
-    [charges, selKey],
+    () => (charges ?? []).filter((c) => c.status === "pending" || c.status === "reclassifying").length,
+    [charges],
   );
 
   const flash = (msg: string) => {
@@ -344,23 +373,32 @@ export function ChargesDashboard({
     window.setTimeout(() => setToast(null), 4500);
   };
 
-  const toggleStatus = (s: ChargeStatus) =>
-    setStatusSel((prev) => {
-      const n = new Set(prev);
-      if (n.has(s)) n.delete(s);
-      else n.add(s);
-      return n;
+  // Per-column value-filter handlers (excluded = the unchecked values).
+  const toggleVal = (key: string, v: string) =>
+    setExcluded((prev) => {
+      const s = new Set(prev[key] ?? []);
+      if (s.has(v)) s.delete(v);
+      else s.add(v);
+      return { ...prev, [key]: s };
     });
+  const selectAllVals = (key: string) => setExcluded((prev) => ({ ...prev, [key]: new Set() }));
+  const clearVals = (key: string, opts: FilterOption[]) =>
+    setExcluded((prev) => ({ ...prev, [key]: new Set(opts.map((o) => o.value)) }));
 
+  const isStatusDefault =
+    excluded.status?.size === DEFAULT_EXCLUDED_STATUS.length &&
+    DEFAULT_EXCLUDED_STATUS.every((s) => excluded.status?.has(s));
+  const anyTableFilter =
+    !!searchQ ||
+    !isStatusDefault ||
+    ["supplier", "cc", "venc", "payment"].some((k) => (excluded[k]?.size ?? 0) > 0);
   const clearFilters = () => {
-    setSelectedCcs(new Set());
     setSearch("");
-    setStatusSel(new Set(DEFAULT_STATUS));
+    setExcluded(makeDefaultExcluded());
   };
 
   // Decide via the API route (not the RPC directly): the route runs the
-  // Google-Sheet write-back inline on approval and returns its outcome, so a
-  // failed sheet write is visible instead of silently skipped.
+  // Google-Sheet write-back inline on approval and returns its outcome.
   const decide = async (
     chargeId: string,
     action: "approve" | "deny",
@@ -373,18 +411,15 @@ export function ChargesDashboard({
         body: JSON.stringify({ action, reason }),
       });
       if (!res.ok) return { ok: false, sheetFailed: false };
-      const body = (await res.json().catch(() => ({}))) as {
-        sheet?: { ok: boolean };
-      };
+      const body = (await res.json().catch(() => ({}))) as { sheet?: { ok: boolean } };
       return { ok: true, sheetFailed: body.sheet?.ok === false };
     } catch {
       return { ok: false, sheetFailed: false };
     }
   };
 
-  // Optimistic decision: update the UI instantly and run the server call —
-  // including the Sheet write-back — in the background. On failure roll the row
-  // back to its prior state so the queue stays responsive.
+  // Optimistic decision: update the UI instantly and run the server call in the
+  // background; roll the row back on failure.
   const decideOptimistic = (c: IncomingCharge, action: "approve" | "deny", reason?: string) => {
     if (busyIds.has(c.id)) return;
     const snapshot = c;
@@ -430,7 +465,7 @@ export function ChargesDashboard({
     if (!denyTarget || !denyReason.trim()) return;
     const target = denyTarget;
     const reason = denyReason.trim();
-    setDenyTarget(null); // close the dialog immediately; the write runs in the background
+    setDenyTarget(null);
     decideOptimistic(target, "deny", reason);
   };
 
@@ -444,7 +479,6 @@ export function ChargesDashboard({
     setReclassTarget(c);
   };
 
-  // Optimistic: mark as "Em mudança de CC" and request reclassification.
   const confirmReclassify = async () => {
     if (!reclassTarget || busyIds.has(reclassTarget.id)) return;
     const target = reclassTarget;
@@ -472,7 +506,6 @@ export function ChargesDashboard({
     void load();
   };
 
-  // All active CCs grouped by department, for the reclassification proposal.
   const allCcGrouped = useMemo(() => {
     const map = new Map<string, typeof allCostCenters>();
     for (const cc of allCostCenters) {
@@ -491,7 +524,6 @@ export function ChargesDashboard({
       return next;
     });
 
-  // Load this head's Slack preference (RLS lets them read their own row).
   useEffect(() => {
     if (!canSlack) return;
     let cancelled = false;
@@ -514,11 +546,11 @@ export function ChargesDashboard({
     if (slackBusy || slackOn === null) return;
     const next = !slackOn;
     setSlackBusy(true);
-    setSlackOn(next); // optimistic
+    setSlackOn(next);
     const { error } = await supabaseBrowser(supabaseToken).rpc("set_slack_pref", { p_enabled: next });
     setSlackBusy(false);
     if (error) {
-      setSlackOn(!next); // revert
+      setSlackOn(!next);
       flash("Não foi possível atualizar a preferência de Slack.");
     }
   };
@@ -698,13 +730,26 @@ export function ChargesDashboard({
         </>
       )}
 
-      {/* Charges table (single, all statuses; filter by Status/CC/search, sort by column) */}
+      {/* Charges table (single; per-column value filters + sort + global search) */}
       <div ref={queueRef} className="reveal reveal-4 mt-8 scroll-mt-4 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
-        <div className="space-y-2.5 border-b border-[var(--line)] px-5 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-5 py-3">
+          <div className="flex items-center gap-3">
             <h2 className="v-tabular text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--faint)]">
               Cobranças
             </h2>
+            <span className="hidden v-tabular text-[10px] text-[var(--faint)] sm:inline">
+              ordene/filtre clicando nos cabeçalhos
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {anyTableFilter && (
+              <button
+                onClick={clearFilters}
+                className="rounded text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              >
+                Limpar filtros
+              </button>
+            )}
             <input
               type="search"
               value={search}
@@ -713,42 +758,6 @@ export function ChargesDashboard({
               aria-label="Buscar nas cobranças"
               className="w-56 rounded-md border border-[var(--line-strong)] bg-[var(--bg)] px-2.5 py-1 text-[11px] text-[var(--ink)] outline-none transition placeholder:text-[var(--faint)] focus:border-[var(--accent)]"
             />
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="v-tabular text-[10px] uppercase tracking-[0.15em] text-[var(--faint)]">Status</span>
-            {STATUS_OPTIONS.map((o) => {
-              const on = statusSel.has(o.value);
-              return (
-                <button
-                  key={o.value}
-                  type="button"
-                  onClick={() => toggleStatus(o.value)}
-                  aria-pressed={on}
-                  className={`rounded-full px-2.5 py-1 v-tabular text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
-                    on
-                      ? "bg-[var(--accent-soft)] text-[var(--accent)]"
-                      : "border border-[var(--line-strong)] text-[var(--muted)] hover:bg-[var(--surface-2)]"
-                  }`}
-                >
-                  {o.label}
-                </button>
-              );
-            })}
-            <span className="mx-1 h-4 w-px bg-[var(--line)]" aria-hidden />
-            <CcMultiSelect
-              centers={filterableCenters}
-              selected={selectedCcs}
-              onToggle={toggleCc}
-              onClear={() => setSelectedCcs(new Set())}
-            />
-            {anyTableFilter && (
-              <button
-                onClick={clearFilters}
-                className="ml-1 rounded text-[11px] font-semibold text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-              >
-                Limpar filtros
-              </button>
-            )}
           </div>
         </div>
 
@@ -768,14 +777,34 @@ export function ChargesDashboard({
               <table className="w-full" aria-label="Cobranças">
                 <thead>
                   <tr className="border-b border-[var(--line)]">
-                    <SortHeader label="ID" field="id" active={sortField} dir={sortDir} onSort={onSort} width="80px" className="pl-5" />
-                    <SortHeader label="Data da solicitação" field="request" active={sortField} dir={sortDir} onSort={onSort} width="120px" />
-                    <SortHeader label="Fornecedor" field="supplier" active={sortField} dir={sortDir} onSort={onSort} />
-                    <SortHeader label="Centro de custo" field="cc" active={sortField} dir={sortDir} onSort={onSort} />
-                    <SortHeader label="Aprovar até" field="due" active={sortField} dir={sortDir} onSort={onSort} align="right" width="110px" />
-                    <SortHeader label="Data de pagamento" field="payment" active={sortField} dir={sortDir} onSort={onSort} align="right" width="120px" />
-                    <SortHeader label="Valor" field="amount" active={sortField} dir={sortDir} onSort={onSort} align="right" width="110px" />
-                    <SortHeader label="Status" field="status" active={sortField} dir={sortDir} onSort={onSort} width="130px" />
+                    <FilterHeader label="ID" field="id" active={sortField} dir={sortDir} setSort={setSort} width="80px" className="pl-5" />
+                    <FilterHeader label="Data da solicitação" field="request" active={sortField} dir={sortDir} setSort={setSort} width="120px" />
+                    <FilterHeader
+                      label="Fornecedor" field="supplier" active={sortField} dir={sortDir} setSort={setSort}
+                      options={filterOptions.supplier} excluded={excluded.supplier}
+                      onToggle={(v) => toggleVal("supplier", v)} onSelectAll={() => selectAllVals("supplier")} onClearAll={() => clearVals("supplier", filterOptions.supplier)}
+                    />
+                    <FilterHeader
+                      label="Centro de custo" field="cc" active={sortField} dir={sortDir} setSort={setSort}
+                      options={filterOptions.cc} excluded={excluded.cc}
+                      onToggle={(v) => toggleVal("cc", v)} onSelectAll={() => selectAllVals("cc")} onClearAll={() => clearVals("cc", filterOptions.cc)}
+                    />
+                    <FilterHeader
+                      label="Aprovar até" field="due" active={sortField} dir={sortDir} setSort={setSort} align="right" width="110px"
+                      options={filterOptions.venc} excluded={excluded.venc}
+                      onToggle={(v) => toggleVal("venc", v)} onSelectAll={() => selectAllVals("venc")} onClearAll={() => clearVals("venc", filterOptions.venc)}
+                    />
+                    <FilterHeader
+                      label="Data de pagamento" field="payment" active={sortField} dir={sortDir} setSort={setSort} align="right" width="120px"
+                      options={filterOptions.payment} excluded={excluded.payment}
+                      onToggle={(v) => toggleVal("payment", v)} onSelectAll={() => selectAllVals("payment")} onClearAll={() => clearVals("payment", filterOptions.payment)}
+                    />
+                    <FilterHeader label="Valor" field="amount" active={sortField} dir={sortDir} setSort={setSort} align="right" width="110px" />
+                    <FilterHeader
+                      label="Status" field="status" active={sortField} dir={sortDir} setSort={setSort} width="130px"
+                      options={filterOptions.status} excluded={excluded.status}
+                      onToggle={(v) => toggleVal("status", v)} onSelectAll={() => selectAllVals("status")} onClearAll={() => clearVals("status", filterOptions.status)}
+                    />
                     <th scope="col" className="w-[230px] px-5 py-2.5 text-right v-tabular text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">Ação</th>
                   </tr>
                 </thead>
@@ -811,7 +840,6 @@ export function ChargesDashboard({
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-xs">
                         {(() => {
-                          // Vencimento ("aprovar até") = the day before the payment date.
                           const { vencimento } = paymentSchedule(c.due_date);
                           if (!vencimento) return <span className="text-[var(--muted)]">—</span>;
                           const overdue = vencimento < todayYmd;
@@ -827,8 +855,6 @@ export function ChargesDashboard({
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-xs text-[var(--ink)]">
                         {(() => {
-                          // Payment date = the API date snapped to a Tue/Fri; the raw API
-                          // date is shown beneath, flagged when it was adjusted.
                           const s = paymentSchedule(c.due_date);
                           if (!s.paymentDate) return <span className="text-[var(--muted)]">—</span>;
                           return (
@@ -991,8 +1017,7 @@ function CcMultiSelect({
   onClear: () => void;
 }) {
   if (centers.length === 0) return null;
-  const label =
-    selected.size === 0 ? "todos" : `${selected.size} de ${centers.length}`;
+  const label = selected.size === 0 ? "todos" : `${selected.size} de ${centers.length}`;
   return (
     <details className="relative">
       <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg border border-[var(--line-strong)] bg-[var(--bg)] px-3 py-1.5 text-sm font-medium text-[var(--ink)] transition hover:border-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
