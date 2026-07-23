@@ -627,7 +627,7 @@ export async function notifyChargeHead(
     const bullets = req.rateio!
       .map(
         (r) =>
-          `• ${escapeMrkdwn(r.code)} — ${escapeMrkdwn(r.label)} · *${r.pct}%*` +
+          `• ${escapeMrkdwn(r.code)}${r.label ? ` — ${escapeMrkdwn(r.label)}` : ""} · *${r.pct}%*` +
           (r.amount != null ? ` · ${money(r.amount, req.currency)}` : ""),
       )
       .join("\n");
