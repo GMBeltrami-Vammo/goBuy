@@ -13,7 +13,7 @@ import { FilterHeader, type FilterOption } from "@/components/table-filter";
 import { useSort } from "@/components/table-sort";
 import { chargeContributions } from "@/lib/rateio";
 import { brtDateTimeBR, brtYmd, formatBRL, formatDateOnlyBR } from "@/lib/format";
-import { paymentSchedule } from "@/lib/payment-schedule";
+import { dayBefore, paymentSchedule, snapToPayDay } from "@/lib/payment-schedule";
 import { formatAmount } from "@/lib/payment";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { CostCenter, CostCenterBudget, IncomingCharge } from "@/lib/types";
@@ -185,6 +185,25 @@ export function ChargesDashboard({
   const canSlack = hasCenters || isRhViewer;
   // Today's BRT calendar date — a Vencimento before it is overdue.
   const todayYmd = brtYmd(new Date().toISOString());
+
+  const addDaysYmd = (ymd: string, n: number) => {
+    const [y, m, d] = ymd.split("-").map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    dt.setUTCDate(dt.getUTCDate() + n);
+    return dt.toISOString().slice(0, 10);
+  };
+  // Payment/vencimento for display. An UNSETTLED charge whose payment day is
+  // today or already past rolls to the next window (next Tue/Fri after today);
+  // the original is kept (shown struck in red) so the move is visible.
+  const displaySchedule = (c: IncomingCharge) => {
+    const base = paymentSchedule(c.due_date);
+    const settled = c.status === "approved" || c.status === "denied";
+    if (!settled && base.paymentDate && base.paymentDate <= todayYmd) {
+      const newPay = snapToPayDay(addDaysYmd(todayYmd, 1));
+      return { paymentDate: newPay, vencimento: dayBefore(newPay), rolled: true, prevPayment: base.paymentDate, prevVenc: base.vencimento };
+    }
+    return { paymentDate: base.paymentDate, vencimento: base.vencimento, rolled: false, prevPayment: null as string | null, prevVenc: null as string | null };
+  };
 
   const load = useCallback(async () => {
     const supabase = supabaseBrowser(supabaseToken);
@@ -844,39 +863,30 @@ export function ChargesDashboard({
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-xs">
                         {(() => {
-                          const { vencimento } = paymentSchedule(c.due_date);
-                          if (!vencimento) return <span className="text-[var(--muted)]">—</span>;
-                          const overdue = vencimento < todayYmd;
+                          const s = displaySchedule(c);
+                          if (!s.vencimento) return <span className="text-[var(--muted)]">—</span>;
                           return (
-                            <div
-                              className={overdue ? "text-[var(--rejected)] line-through" : "text-[var(--ink)]"}
-                              title="Último dia para aprovar e manter o pagamento na data prevista."
-                            >
-                              {formatDateOnlyBR(vencimento)}
-                            </div>
+                            <>
+                              {s.rolled && s.prevVenc && (
+                                <div className="text-[var(--rejected)] line-through">{formatDateOnlyBR(s.prevVenc)}</div>
+                              )}
+                              <div className="text-[var(--ink)]" title="Último dia para aprovar e manter o pagamento na data prevista.">
+                                {formatDateOnlyBR(s.vencimento)}
+                              </div>
+                            </>
                           );
                         })()}
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-xs text-[var(--ink)]">
                         {(() => {
-                          const s = paymentSchedule(c.due_date);
+                          const s = displaySchedule(c);
                           if (!s.paymentDate) return <span className="text-[var(--muted)]">—</span>;
                           return (
                             <>
-                              <div>{formatDateOnlyBR(s.paymentDate)}</div>
-                              {s.apiDate && (
-                                <div
-                                  className="mt-0.5 text-[11px] text-[var(--faint)]"
-                                  title={
-                                    s.adjusted
-                                      ? "Data recebida da API — ajustada para o próximo dia de pagamento (ter/sex)."
-                                      : "Data recebida da API."
-                                  }
-                                >
-                                  API {formatDateOnlyBR(s.apiDate)}
-                                  {s.adjusted ? " ⟶ ajust." : ""}
-                                </div>
+                              {s.rolled && s.prevPayment && (
+                                <div className="text-[var(--rejected)] line-through">{formatDateOnlyBR(s.prevPayment)}</div>
                               )}
+                              <div>{formatDateOnlyBR(s.paymentDate)}</div>
                             </>
                           );
                         })()}
