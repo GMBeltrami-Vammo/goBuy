@@ -42,6 +42,14 @@ export function dayBefore(ymd: string): string {
   return toYmd(dt);
 }
 
+/** The next payment day (Tue/Fri) strictly after `ymd`. */
+export function nextPayDayAfter(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + 1);
+  return snapToPayDay(toYmd(dt));
+}
+
 export interface PaymentSchedule {
   /** The raw date received from the API (the requested payment date). */
   apiDate: string | null;

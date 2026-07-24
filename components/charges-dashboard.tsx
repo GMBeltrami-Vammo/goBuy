@@ -13,7 +13,7 @@ import { FilterHeader, type FilterOption } from "@/components/table-filter";
 import { useSort } from "@/components/table-sort";
 import { chargeContributions } from "@/lib/rateio";
 import { brtDateTimeBR, brtYmd, formatBRL, formatDateOnlyBR } from "@/lib/format";
-import { dayBefore, paymentSchedule, snapToPayDay } from "@/lib/payment-schedule";
+import { dayBefore, nextPayDayAfter, paymentSchedule } from "@/lib/payment-schedule";
 import { formatAmount } from "@/lib/payment";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { CostCenter, CostCenterBudget, IncomingCharge } from "@/lib/types";
@@ -88,7 +88,20 @@ function fmtMoney(n: number, currency: string): string {
 // ─── Sorting & search ─────────────────────────────────────────────────────────
 type SortField = "id" | "request" | "supplier" | "cc" | "due" | "payment" | "amount" | "status";
 
-function chargeSortKey(c: IncomingCharge, field: SortField): string | number {
+// Payment/vencimento for display + sort/filter. An UNSETTLED charge whose payment
+// day is today or already past rolls to the next window (next Tue/Fri after
+// today); the original is kept so the move can be shown struck in red.
+function displaySchedule(c: IncomingCharge, todayYmd: string) {
+  const base = paymentSchedule(c.due_date);
+  const settled = c.status === "approved" || c.status === "denied";
+  if (!settled && base.paymentDate && base.paymentDate <= todayYmd) {
+    const newPay = nextPayDayAfter(todayYmd);
+    return { paymentDate: newPay, vencimento: dayBefore(newPay), rolled: true, prevPayment: base.paymentDate, prevVenc: base.vencimento };
+  }
+  return { paymentDate: base.paymentDate, vencimento: base.vencimento, rolled: false, prevPayment: null as string | null, prevVenc: null as string | null };
+}
+
+function chargeSortKey(c: IncomingCharge, field: SortField, todayYmd: string): string | number {
   switch (field) {
     case "id":
       return c.display_id ?? "";
@@ -99,9 +112,9 @@ function chargeSortKey(c: IncomingCharge, field: SortField): string | number {
     case "cc":
       return c.cost_centers?.code ?? "";
     case "due":
-      return paymentSchedule(c.due_date).vencimento ?? "";
+      return displaySchedule(c, todayYmd).vencimento ?? "";
     case "payment":
-      return paymentSchedule(c.due_date).paymentDate ?? "";
+      return displaySchedule(c, todayYmd).paymentDate ?? "";
     case "amount":
       return Number(c.amount) || 0;
     case "status":
@@ -109,9 +122,9 @@ function chargeSortKey(c: IncomingCharge, field: SortField): string | number {
   }
 }
 
-function compareCharges(a: IncomingCharge, b: IncomingCharge, field: SortField, dir: "asc" | "desc"): number {
-  const ka = chargeSortKey(a, field);
-  const kb = chargeSortKey(b, field);
+function compareCharges(a: IncomingCharge, b: IncomingCharge, field: SortField, dir: "asc" | "desc", todayYmd: string): number {
+  const ka = chargeSortKey(a, field, todayYmd);
+  const kb = chargeSortKey(b, field, todayYmd);
   const aEmpty = ka === "";
   const bEmpty = kb === "";
   if (aEmpty && bEmpty) return 0;
@@ -185,25 +198,6 @@ export function ChargesDashboard({
   const canSlack = hasCenters || isRhViewer;
   // Today's BRT calendar date — a Vencimento before it is overdue.
   const todayYmd = brtYmd(new Date().toISOString());
-
-  const addDaysYmd = (ymd: string, n: number) => {
-    const [y, m, d] = ymd.split("-").map(Number);
-    const dt = new Date(Date.UTC(y, m - 1, d));
-    dt.setUTCDate(dt.getUTCDate() + n);
-    return dt.toISOString().slice(0, 10);
-  };
-  // Payment/vencimento for display. An UNSETTLED charge whose payment day is
-  // today or already past rolls to the next window (next Tue/Fri after today);
-  // the original is kept (shown struck in red) so the move is visible.
-  const displaySchedule = (c: IncomingCharge) => {
-    const base = paymentSchedule(c.due_date);
-    const settled = c.status === "approved" || c.status === "denied";
-    if (!settled && base.paymentDate && base.paymentDate <= todayYmd) {
-      const newPay = snapToPayDay(addDaysYmd(todayYmd, 1));
-      return { paymentDate: newPay, vencimento: dayBefore(newPay), rolled: true, prevPayment: base.paymentDate, prevVenc: base.vencimento };
-    }
-    return { paymentDate: base.paymentDate, vencimento: base.vencimento, rolled: false, prevPayment: null as string | null, prevVenc: null as string | null };
-  };
 
   const load = useCallback(async () => {
     const supabase = supabaseBrowser(supabaseToken);
@@ -343,7 +337,7 @@ export function ChargesDashboard({
       supplier.set(c.supplier_name ?? "", c.supplier_name ?? "");
       const code = c.cost_centers?.code ?? "";
       cc.set(code, c.cost_centers ? `${c.cost_centers.code} — ${c.cost_centers.name}` : code);
-      const s = paymentSchedule(c.due_date);
+      const s = displaySchedule(c, todayYmd);
       venc.set(s.vencimento ?? "", s.vencimento ? formatDateOnlyBR(s.vencimento) : "");
       payment.set(s.paymentDate ?? "", s.paymentDate ? formatDateOnlyBR(s.paymentDate) : "");
     }
@@ -360,21 +354,21 @@ export function ChargesDashboard({
       (charges ?? []).some((c) => c.status === o.value),
     ).map((o) => ({ value: o.value, label: o.label }));
     return { supplier: byLabel(supplier), cc: byLabel(cc), venc: byDate(venc), payment: byDate(payment), status };
-  }, [charges]);
+  }, [charges, todayYmd]);
 
   const rows = useMemo(() => {
     const list = (charges ?? []).filter((c) => {
       if (searchQ && !matchesChargeSearch(c, searchQ)) return false;
       if (excluded.supplier?.has(c.supplier_name ?? "")) return false;
       if (excluded.cc?.has(c.cost_centers?.code ?? "")) return false;
-      const s = paymentSchedule(c.due_date);
+      const s = displaySchedule(c, todayYmd);
       if (excluded.venc?.has(s.vencimento ?? "")) return false;
       if (excluded.payment?.has(s.paymentDate ?? "")) return false;
       if (excluded.status?.has(c.status)) return false;
       return true;
     });
-    return [...list].sort((a, b) => compareCharges(a, b, sortField, sortDir));
-  }, [charges, excluded, searchQ, sortField, sortDir]);
+    return [...list].sort((a, b) => compareCharges(a, b, sortField, sortDir, todayYmd));
+  }, [charges, excluded, searchQ, sortField, sortDir, todayYmd]);
 
   const excludedKey = Object.entries(excluded)
     .map(([k, s]) => `${k}:${[...s].sort().join("|")}`)
@@ -863,7 +857,7 @@ export function ChargesDashboard({
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-xs">
                         {(() => {
-                          const s = displaySchedule(c);
+                          const s = displaySchedule(c, todayYmd);
                           if (!s.vencimento) return <span className="text-[var(--muted)]">—</span>;
                           return (
                             <>
@@ -879,7 +873,7 @@ export function ChargesDashboard({
                       </td>
                       <td className="px-2 py-3.5 text-right v-tabular text-xs text-[var(--ink)]">
                         {(() => {
-                          const s = displaySchedule(c);
+                          const s = displaySchedule(c, todayYmd);
                           if (!s.paymentDate) return <span className="text-[var(--muted)]">—</span>;
                           return (
                             <>

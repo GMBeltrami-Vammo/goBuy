@@ -1,7 +1,7 @@
 import "server-only";
 
-import { formatDateOnlyBR } from "@/lib/format";
-import { headApprovalTimeString, paymentSchedule } from "@/lib/payment-schedule";
+import { brtStamp, brtYmd, formatDateOnlyBR } from "@/lib/format";
+import { nextPayDayAfter, paymentSchedule } from "@/lib/payment-schedule";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 // Google Apps Script that writes TRUE back to the source spreadsheet row on
@@ -56,19 +56,28 @@ export async function writeChargeToSheet(charge: {
     return { ok: false, reason: "no_key" };
   }
 
-  // Payment date is derived purely from the API date (the requested payment
-  // date), snapped to a Tue/Fri — it does not depend on the decision time.
   const sched = paymentSchedule(charge.due_date);
-  const payment_date = sched.paymentDate ? formatDateOnlyBR(sched.paymentDate) : ""; // DD/MM/YYYY
+  const base = sched.paymentDate; // API date snapped to a Tue/Fri
+  let payment_date = base ? formatDateOnlyBR(base) : ""; // DD/MM/YYYY
   let head_approval_time: string;
   if (charge.action === "deny") {
     // Refusal: message is just "Recusada"; payment_date is the date it would have had.
     head_approval_time = "Recusada";
   } else {
-    // Approval: timestamped narrative; "reprogramado" when the API date was moved.
-    const approvalIso = charge.decided_at ?? new Date().toISOString();
-    head_approval_time = sched.paymentDate
-      ? headApprovalTimeString(approvalIso, sched.apiDate, sched.paymentDate, sched.adjusted)
+    // Approval: record the aceite (decision) date + the payment date. If the
+    // scheduled day already passed by the aceite day, it rolls to the next window
+    // and BOTH dates are written ("alterada de D para D2").
+    const acceptIso = charge.decided_at ?? new Date().toISOString();
+    const acceptYmd = brtYmd(acceptIso);
+    const effective = base && base <= acceptYmd ? nextPayDayAfter(acceptYmd) : base;
+    const changed = !!base && !!effective && effective !== base;
+    payment_date = effective ? formatDateOnlyBR(effective) : "";
+    head_approval_time = effective
+      ? `${brtStamp(acceptIso)} - Aceite. ${
+          changed
+            ? `Pagamento alterado de ${formatDateOnlyBR(base as string)} para ${formatDateOnlyBR(effective)}.`
+            : `Pagamento em ${formatDateOnlyBR(effective)}.`
+        }`
       : "Aprovada";
   }
 
